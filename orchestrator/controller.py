@@ -1,65 +1,30 @@
-"""Workflow controller with human-in-the-loop checkpoints (stub agents for Phase 2)."""
+"""Workflow controller driving the migration pipeline with real agents."""
 
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from pathlib import Path
 
+from executor_mcp.paths import WORKSPACE_ROOT_ENV
+from llm.fake import FakeLLM
+from llm.openai_client import OpenAIClient
+from llm.types import LLMClient
+from orchestrator.executor_client import WorkspaceExecutor
 from orchestrator.models import (
+    REVIEW_TO_WORK,
     AgentId,
     AgentStatus,
     ReviewContext,
     WorkflowStep,
+    is_work_step,
     review_context_for,
 )
 from orchestrator.state import OrchestratorState
+from orchestrator.step_runner import StepRunner
 
 StateCallback = Callable[[OrchestratorState], Awaitable[None] | None]
-
-
-@dataclass
-class StepWork:
-    """Agents activated and log lines for a non-review workflow step."""
-
-    active: tuple[AgentId, ...]
-    messages: tuple[str, ...]
-    duration_seconds: float = 0.6
-
-
-_STEP_WORK: dict[WorkflowStep, StepWork] = {
-    WorkflowStep.CREATE_TEST_PY: StepWork(
-        active=(AgentId.ANALYZER, AgentId.TESTER, AgentId.EXECUTOR),
-        messages=(
-            "Analyzer: scanning Python project layout",
-            "Tester: drafting baseline pytest suite",
-            "Executor: writing tests/test_migrated.py",
-        ),
-        duration_seconds=1.2,
-    ),
-    WorkflowStep.TRANSLATE_TEST: StepWork(
-        active=(AgentId.TESTER, AgentId.EXECUTOR),
-        messages=(
-            "Tester: converting pytest cases to Rust #[test] blocks",
-            "Executor: writing tests/integration_test.rs",
-        ),
-    ),
-    WorkflowStep.TRANSLATE_CODE: StepWork(
-        active=(AgentId.TRANSLATOR, AgentId.EXECUTOR),
-        messages=(
-            "Translator: mapping Python modules to Rust crate layout",
-            "Executor: writing src/lib.rs and src/main.rs",
-        ),
-    ),
-    WorkflowStep.RUN_TESTS: StepWork(
-        active=(AgentId.EXECUTOR,),
-        messages=(
-            "Executor: running cargo test",
-            "Executor: all tests passed (stub)",
-        ),
-        duration_seconds=0.8,
-    ),
-}
 
 _NEXT_AFTER_WORK: dict[WorkflowStep, WorkflowStep] = {
     WorkflowStep.CREATE_TEST_PY: WorkflowStep.REVIEW_PLAN_PY,
@@ -75,6 +40,12 @@ _NEXT_AFTER_APPROVE: dict[WorkflowStep, WorkflowStep] = {
 }
 
 
+def _default_llm(executor: WorkspaceExecutor) -> LLMClient:
+    if os.environ.get("OPENAI_API_KEY"):
+        return OpenAIClient(executor)
+    return FakeLLM(executor)
+
+
 class OrchestratorController:
     """Drives the migration pipeline and pauses for human review."""
 
@@ -82,12 +53,24 @@ class OrchestratorController:
         self,
         state: OrchestratorState,
         on_change: StateCallback | None = None,
+        *,
+        step_runner: StepRunner | None = None,
+        llm: LLMClient | None = None,
     ) -> None:
         self.state = state
         self._on_change = on_change
         self._task: asyncio.Task[None] | None = None
         self._pause = asyncio.Event()
         self._pause.set()
+        workspace = Path(state.workspace).expanduser().resolve()
+        self._executor = WorkspaceExecutor(workspace)
+        self._llm = llm or _default_llm(self._executor)
+        self._runner = step_runner or StepRunner(
+            state,
+            self._executor,
+            self._llm,
+            on_notify=self._notify,
+        )
 
     async def _notify(self) -> None:
         if self._on_change is None:
@@ -101,8 +84,17 @@ class OrchestratorController:
             return
         if workspace is not None:
             self.state.workspace = workspace
+        root = Path(self.state.workspace).expanduser().resolve()
+        os.environ[WORKSPACE_ROOT_ENV] = str(root)
+        self._executor = WorkspaceExecutor(root)
+        self._runner._executor = self._executor
+        if isinstance(self._llm, FakeLLM):
+            self._llm._executor = self._executor
+        elif isinstance(self._llm, OpenAIClient):
+            self._llm._executor = self._executor
         self.state.running = True
         self.state.workflow_step = WorkflowStep.CREATE_TEST_PY
+        self.state.last_agent_summary = ""
         self.state.append_log(
             f"Migration started (workspace: {self.state.workspace})"
         )
@@ -152,13 +144,15 @@ class OrchestratorController:
         text = feedback.strip()
         if not text:
             return False
-        step = self.state.workflow_step
+        review_step = self.state.workflow_step
+        work_step = REVIEW_TO_WORK.get(review_step)
+        if work_step is None:
+            return False
         self.state.last_user_feedback = text
-        self.state.append_log(f"User feedback on {step.label}: {text}")
+        self.state.append_log(f"User feedback on {review_step.label}: {text}")
         self.state.clear_human_review()
         self.state.reset_agents_to_idle()
-        # Re-run the preceding agent work for this review gate.
-        self.state.workflow_step = step
+        self.state.workflow_step = work_step
         await self._notify()
         self._pause.set()
         return True
@@ -182,7 +176,7 @@ class OrchestratorController:
                 if step.is_human_review:
                     await self._enter_human_review(step)
                     continue
-                if step in _STEP_WORK:
+                if is_work_step(step):
                     await self._run_agent_work(step)
                     continue
                 await asyncio.sleep(0.05)
@@ -190,7 +184,11 @@ class OrchestratorController:
             raise
 
     async def _enter_human_review(self, step: WorkflowStep) -> None:
-        ctx = review_context_for(step)
+        ctx = review_context_for(
+            step,
+            self.state.workspace,
+            agent_summary=self.state.last_agent_summary,
+        )
         if ctx is None:
             ctx = ReviewContext(title=step.label, summary="Review required.")
         self.state.workflow_step = step
@@ -206,7 +204,6 @@ class OrchestratorController:
         await self._notify()
 
     async def _run_agent_work(self, step: WorkflowStep) -> None:
-        work = _STEP_WORK[step]
         self.state.clear_human_review()
         self.state.set_agent(
             AgentId.ORCHESTRATOR,
@@ -214,23 +211,37 @@ class OrchestratorController:
             detail=step.label,
         )
         self.state.reset_agents_to_idle()
-        for agent_id in work.active:
-            self.state.set_agent(agent_id, AgentStatus.RUNNING)
         await self._notify()
 
-        delay = work.duration_seconds / max(len(work.messages), 1)
-        for message in work.messages:
-            self.state.append_log(message)
-            await self._notify()
-            await asyncio.sleep(delay)
+        result = await self._runner.run(step)
 
-        for agent_id in work.active:
-            self.state.set_agent(agent_id, AgentStatus.COMPLETED, detail="Done")
-        self.state.set_agent(
-            AgentId.ORCHESTRATOR,
-            AgentStatus.RUNNING,
-            detail="Advancing workflow",
-        )
+        if not result.success and not result.allow_advance:
+            self.state.set_agent(
+                AgentId.ORCHESTRATOR,
+                AgentStatus.ERROR,
+                detail="Step failed",
+            )
+            self.state.append_log(
+                f"Step failed: {result.summary or step.label}",
+                level="error",
+            )
+            await self._notify()
+            self._pause.set()
+            return
+
+        if not result.success:
+            self.state.set_agent(
+                AgentId.ORCHESTRATOR,
+                AgentStatus.ERROR,
+                detail=result.summary or "Completed with failures",
+            )
+        else:
+            self.state.set_agent(
+                AgentId.ORCHESTRATOR,
+                AgentStatus.RUNNING,
+                detail="Advancing workflow",
+            )
+
         next_step = _NEXT_AFTER_WORK[step]
         self.state.workflow_step = next_step
         self.state.append_log(f"Advanced to: {next_step.label}")

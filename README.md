@@ -95,6 +95,44 @@ This `README.md` is designed to be the foundational context for Cursor. When bui
 
 ---
 
+## Phase 4: Workflow Implementation
+
+The orchestrator runs the full migration pipeline with OpenAI tool-calling agents. Each agent uses in-process executor tools (`read_file`, `write_file`, `execute_command`) via [`orchestrator/executor_client.py`](orchestrator/executor_client.py).
+
+### Environment
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | For live runs | OpenAI API key |
+| `OPENAI_BASE_URL` | No | Custom API base URL |
+| `MIGRATOR_MODEL` | No | Model id (default: `gpt-4o-mini`) |
+| `EXECUTOR_WORKSPACE_ROOT` | No | Set automatically when starting migration |
+
+Without `OPENAI_API_KEY`, the orchestrator uses a deterministic `FakeLLM` (used by `pytest`) that writes minimal stub artifacts.
+
+### Run the orchestrator
+
+```bash
+uv sync
+export OPENAI_API_KEY=sk-...
+uv run orchestrator -w /path/to/python/project
+```
+
+Press **r** to start, **a** to approve a review step, **s** to send feedback (re-runs the preceding agent work), **q** to quit.
+
+### Expected artifacts per step
+
+| Step | Agents | Typical outputs |
+|------|--------|-----------------|
+| 1 — Create Python tests | Analyzer, Tester | `migration_plan.md`, `tests/test_*.py` |
+| 3 — Translate tests | Tester | `tests/*.rs` or `#[cfg(test)]` in `src/` |
+| 5 — Translate code | Translator | `Cargo.toml`, `src/lib.rs` |
+| 7 — Run tests | Executor (+ Translator fix on failure) | `cargo test` results in activity log |
+
+Human review panels load summaries and file paths from the workspace (see [`orchestrator/review.py`](orchestrator/review.py)).
+
+---
+
 ## Phase 1: Executor MCP
 
 The executor layer is a stdio MCP server built with Python, [uv](https://docs.astral.sh/uv/), and the official [`mcp`](https://pypi.org/project/mcp/) SDK. Tool implementations live under [`executor_mcp/`](executor_mcp/) (one file per tool) so they do not shadow the `mcp` package name.
