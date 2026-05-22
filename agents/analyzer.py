@@ -11,7 +11,8 @@ Read the target Python project and produce a clear, actionable **migration analy
 - On **revision** after human review: incorporate Orchestrator feedback and re-read changed files.
 
 ## Tools (Executor MCP)
-Use only these tools; all paths are workspace-relative:
+Use only these tools. Read the original project under `source/` (read-only).
+Write `migration_plan.md` to `py_tests/`. Never modify `source/`:
 - `read_file` — inspect source, configs, and existing tests
 - `write_file` — save analysis artifacts (e.g. `migration_plan.md`)
 - `execute_command` — list dirs, run `python -m py_compile`, inspect deps (`pip show`, `uv tree`), or read package metadata when needed

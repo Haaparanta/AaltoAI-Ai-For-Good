@@ -8,35 +8,59 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from llm.errors import LLMConfigurationError
 from llm.types import AgentResult, ToolLogCallback
-from orchestrator.executor_client import WorkspaceExecutor
 
 DEFAULT_MODEL = "gpt-4o-mini"
 MAX_TOOL_ROUNDS = 25
 
 
 class OpenAIClient:
-    """Runs agent turns via OpenAI tool-calling loop."""
+    """Runs agent turns via an OpenAI-compatible API with tool calling."""
 
     def __init__(
         self,
-        executor: WorkspaceExecutor,
+        executor: Any,
         *,
-        api_key: str | None = None,
+        api_key: str,
         base_url: str | None = None,
         model: str | None = None,
+        provider_label: str = "OpenAI",
         max_tool_rounds: int = MAX_TOOL_ROUNDS,
     ) -> None:
-        key = api_key or os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise ValueError("OPENAI_API_KEY is required for live agent runs")
+        if not api_key.strip():
+            raise LLMConfigurationError("API key is required for the selected provider.")
         self._executor = executor
+        self._provider_label = provider_label
         self._model = model or os.environ.get("MIGRATOR_MODEL", DEFAULT_MODEL)
         self._max_tool_rounds = max_tool_rounds
         self._client = AsyncOpenAI(
-            api_key=key,
-            base_url=base_url or os.environ.get("OPENAI_BASE_URL"),
+            api_key=api_key.strip(),
+            base_url=base_url,
         )
+
+    @property
+    def provider_label(self) -> str:
+        return self._provider_label
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    def display_name(self) -> str:
+        return f"{self._provider_label} / {self._model}"
+
+    async def verify_connection(self) -> None:
+        """Confirm the API is reachable (raises LLMConfigurationError if not)."""
+        try:
+            await self._client.models.list()
+        except LLMConfigurationError:
+            raise
+        except Exception as exc:
+            raise LLMConfigurationError(
+                f"{self._provider_label} API request failed. Check credentials, "
+                f"base URL, and network access. ({exc})"
+            ) from exc
 
     async def run_agent_turn(
         self,

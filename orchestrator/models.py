@@ -164,17 +164,18 @@ def is_work_step(step: WorkflowStep) -> bool:
 
 def review_context_for(
     step: WorkflowStep,
-    workspace: str | Path | None = None,
+    layout: object | None = None,
     *,
     agent_summary: str = "",
 ) -> ReviewContext | None:
-    """Build review context from workspace artifacts."""
+    """Build review context from migration layout artifacts."""
+    from orchestrator.migration_layout import MigrationLayout
     from orchestrator.review import build_review_context
 
-    if workspace is None:
+    if layout is None or not isinstance(layout, MigrationLayout):
         return None
     return build_review_context(
         step,
-        Path(workspace),
+        layout,
         agent_summary=agent_summary,
     )
