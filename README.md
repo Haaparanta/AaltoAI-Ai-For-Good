@@ -87,7 +87,7 @@ sequenceDiagram
 This `README.md` is designed to be the foundational context for Cursor. When building this project:
 
 1. **Phase 1: The Executor (MCP)**: Start by building the file read/write and command execution utilities. These are the tools all agents will need.
-2. **Phase 2: The Orchestrator CLI**: Build the basic terminal interface that can pause for user input (the Human-in-the-loop mechanism).
+2. **Phase 2: The Orchestrator CLI**: Build the basic terminal interface that can pause for user input (the Human-in-the-loop mechanism). Run with `uv run orchestrator` (optional `-w /path/to/project`).
 3. **Phase 3: LLM Integration & Prompts**: Define the system prompts for each specific agent role (Tester, Translator, Analyzer).
 4. **Phase 4: Workflow Implementation**: Tie the agents together using the Orchestrator following the exact 6-step numbered list above.
 

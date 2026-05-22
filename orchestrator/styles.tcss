@@ -1,0 +1,126 @@
+Screen {
+    background: $surface;
+}
+
+#header-bar {
+    height: 3;
+    padding: 0 1;
+    background: $primary-darken-2;
+    color: $text;
+}
+
+#header-bar Static.title {
+    text-style: bold;
+}
+
+#header-bar Static.step {
+    color: $accent;
+}
+
+#main-grid {
+    height: 1fr;
+}
+
+#agents-panel {
+    width: 36;
+    min-width: 28;
+    border: solid $primary-darken-1;
+    padding: 0 1;
+}
+
+#agents-panel Static.panel-title {
+    text-style: bold;
+    padding: 1 0;
+    color: $accent;
+}
+
+#agents-table {
+    height: 1fr;
+}
+
+#content-panel {
+    border: solid $primary-darken-1;
+    padding: 0 1;
+}
+
+#content-panel Static.panel-title {
+    text-style: bold;
+    padding: 1 0;
+    color: $accent;
+}
+
+#review-panel {
+    height: auto;
+    max-height: 14;
+    border: dashed $warning-darken-2;
+    padding: 1;
+    margin-bottom: 1;
+    display: none;
+}
+
+#review-panel.visible {
+    display: block;
+}
+
+#review-panel Static.review-title {
+    text-style: bold;
+    color: $warning;
+}
+
+#activity-log {
+    height: 1fr;
+    border: none;
+    padding: 0;
+}
+
+#footer-bar {
+    height: auto;
+    min-height: 5;
+    padding: 1;
+    background: $panel;
+    border-top: solid $primary-darken-1;
+}
+
+#human-input-row {
+    height: auto;
+    layout: horizontal;
+    margin-top: 1;
+}
+
+#human-input-row.hidden {
+    display: none;
+}
+
+#feedback-input {
+    width: 1fr;
+}
+
+#human-input-row Button {
+    margin-left: 1;
+    min-width: 14;
+}
+
+#status-line {
+    color: $text-muted;
+    padding-top: 1;
+}
+
+.status-idle {
+    color: $text-muted;
+}
+
+.status-running {
+    color: $success;
+}
+
+.status-waiting {
+    color: $warning;
+}
+
+.status-completed {
+    color: $accent;
+}
+
+.status-error {
+    color: $error;
+}

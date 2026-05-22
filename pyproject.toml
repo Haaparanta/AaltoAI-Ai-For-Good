@@ -9,18 +9,20 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]==1.27.1",
+    "textual>=1.0.0",
 ]
 
 [project.scripts]
 executor-mcp = "executor_mcp.server:main"
+orchestrator = "orchestrator.app:main"
 
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "executor_mcp"
 module-root = ""
+namespace = true
 
 [dependency-groups]
 dev = [
