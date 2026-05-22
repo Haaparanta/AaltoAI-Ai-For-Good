@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 
 
 class AgentId(str, Enum):
@@ -141,34 +142,39 @@ class ReviewContext:
     artifacts: list[str] = field(default_factory=list)
 
 
-# Stub review content per step (replaced by real agent output in Phase 4).
-_REVIEW_STUBS: dict[WorkflowStep, ReviewContext] = {
-    WorkflowStep.REVIEW_PLAN_PY: ReviewContext(
-        title="Review migration plan & Python tests",
-        summary=(
-            "The Analyzer mapped the Python package structure. The Tester "
-            "drafted pytest cases covering public APIs and edge cases."
-        ),
-        artifacts=["migration_plan.md", "tests/test_migrated.py"],
-    ),
-    WorkflowStep.REVIEW_RUST_TESTS: ReviewContext(
-        title="Review Rust tests",
-        summary=(
-            "Rust tests were generated with #[test] blocks mirroring the "
-            "approved Python test suite."
-        ),
-        artifacts=["tests/integration_test.rs"],
-    ),
-    WorkflowStep.REVIEW_RUST_CODE: ReviewContext(
-        title="Review Rust source",
-        summary=(
-            "The Translator produced Rust modules aligned with the approved "
-            "tests. Check naming, error handling, and crate layout."
-        ),
-        artifacts=["src/lib.rs", "src/main.rs"],
-    ),
+_WORK_STEPS = frozenset(
+    {
+        WorkflowStep.CREATE_TEST_PY,
+        WorkflowStep.TRANSLATE_TEST,
+        WorkflowStep.TRANSLATE_CODE,
+        WorkflowStep.RUN_TESTS,
+    }
+)
+
+REVIEW_TO_WORK: dict[WorkflowStep, WorkflowStep] = {
+    WorkflowStep.REVIEW_PLAN_PY: WorkflowStep.CREATE_TEST_PY,
+    WorkflowStep.REVIEW_RUST_TESTS: WorkflowStep.TRANSLATE_TEST,
+    WorkflowStep.REVIEW_RUST_CODE: WorkflowStep.TRANSLATE_CODE,
 }
 
 
-def review_context_for(step: WorkflowStep) -> ReviewContext | None:
-    return _REVIEW_STUBS.get(step)
+def is_work_step(step: WorkflowStep) -> bool:
+    return step in _WORK_STEPS
+
+
+def review_context_for(
+    step: WorkflowStep,
+    workspace: str | Path | None = None,
+    *,
+    agent_summary: str = "",
+) -> ReviewContext | None:
+    """Build review context from workspace artifacts."""
+    from orchestrator.review import build_review_context
+
+    if workspace is None:
+        return None
+    return build_review_context(
+        step,
+        Path(workspace),
+        agent_summary=agent_summary,
+    )

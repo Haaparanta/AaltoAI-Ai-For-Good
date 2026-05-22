@@ -31,6 +31,7 @@ class OrchestratorState:
     workspace: str = "."
     running: bool = False
     last_user_feedback: str = ""
+    last_agent_summary: str = ""
 
     def __post_init__(self) -> None:
         if not self.agents:
