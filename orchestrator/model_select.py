@@ -59,9 +59,9 @@ class ModelSelectScreen(Screen[ModelChoice | None]):
             yield Static("Discovering providers…", id="status-text")
             yield Static("", id="error-text")
             yield Label("Provider")
-            yield Select(id="provider-select", disabled=True)
+            yield Select([], id="provider-select", prompt="Loading…", disabled=True)
             yield Label("Model")
-            yield Select(id="model-select", disabled=True)
+            yield Select([], id="model-select", prompt="Loading…", disabled=True)
             yield Button("Continue", id="btn-continue", variant="primary", disabled=True)
             yield Static(
                 "OpenAI: OPENAI_API_KEY · Cursor: local bridge at "
