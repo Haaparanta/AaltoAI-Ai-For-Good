@@ -92,4 +92,40 @@ This `README.md` is designed to be the foundational context for Cursor. When bui
 4. **Phase 4: Workflow Implementation**: Tie the agents together using the Orchestrator following the exact 6-step numbered list above.
 
 *Tip for Cursor: Reference the mermaid diagrams above when asking Cursor to structure the agent classes. E.g., "@README.md Create the Orchestrator class that implements the 6 steps outlined in the sequence diagram."*
-"""
+
+---
+
+## Phase 1: Executor MCP
+
+The executor layer is a stdio MCP server built with Python, [uv](https://docs.astral.sh/uv/), and the official [`mcp`](https://pypi.org/project/mcp/) SDK. Tool implementations live under [`executor_mcp/`](executor_mcp/) (one file per tool) so they do not shadow the `mcp` package name.
+
+### Setup
+
+```bash
+uv sync
+uv run pytest
+```
+
+### Run the MCP server
+
+```bash
+uv run executor-mcp
+```
+
+Cursor loads it via [`.cursor/mcp.json`](.cursor/mcp.json). Reload MCP in Cursor after code changes.
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read a workspace-relative file (optional 1-based `offset` / `limit` by line) |
+| `write_file` | Write or overwrite a workspace-relative file |
+| `execute_command` | Run a shell command with `cwd` confined to the workspace |
+
+All file paths are resolved under the workspace root (`Path.cwd()` at startup, or `EXECUTOR_WORKSPACE_ROOT`). Paths that escape the root are rejected. Reads are capped at 2 MiB.
+
+### Smoke test in Cursor
+
+1. `read_file` on `README.md`
+2. `write_file` to a temp path such as `_mcp_smoke.txt`
+3. `execute_command` with `echo ok`

@@ -1,0 +1,31 @@
+[project]
+name = "aalto-migrator"
+version = "0.1.0"
+description = "Agentic Py2Rust migrator with MCP executor tools"
+readme = "README.md"
+authors = [
+    { name = "Vesa Haaparanta", email = "vesahaaparanta@hotmail.fi" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]==1.27.1",
+]
+
+[project.scripts]
+executor-mcp = "executor_mcp.server:main"
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "executor_mcp"
+module-root = ""
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
