@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from orchestrator.migration_layout import MigrationLayout
 from orchestrator.models import (
     AgentId,
     AgentInfo,
@@ -29,6 +30,8 @@ class OrchestratorState:
     awaiting_human: bool = False
     review: ReviewContext | None = None
     workspace: str = "."
+    layout: MigrationLayout | None = None
+    llm_display: str = ""
     running: bool = False
     last_user_feedback: str = ""
     last_agent_summary: str = ""

@@ -9,11 +9,17 @@ from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Static
 
+from llm.discovery import create_llm_client, verify_model_choice
+from llm.errors import LLMConfigurationError
+from llm.providers import ModelChoice
 from orchestrator.controller import OrchestratorController
+from orchestrator.migration_executor import MigrationExecutor
+from orchestrator.migration_layout import MigrationLayout
+from orchestrator.model_select import ModelSelectScreen
 from orchestrator.models import AgentId, AgentStatus, WorkflowStep
 from orchestrator.state import OrchestratorState
 
@@ -37,18 +43,18 @@ class MigratorApp(App[None]):
         Binding("a", "approve", "Approve", show=True),
         Binding("s", "submit_feedback", "Send feedback", show=True),
         Binding("r", "start_migration", "Start", show=True),
+        Binding("m", "change_model", "Change model", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
     state_version = reactive(0)
 
-    def __init__(self, workspace: str = ".") -> None:
+    def __init__(self, workspace: str = ".", *, model_choice: ModelChoice | None = None) -> None:
         super().__init__()
+        self._workspace = workspace
+        self._model_choice = model_choice
         self._state = OrchestratorState(workspace=workspace)
-        self._controller = OrchestratorController(
-            self._state,
-            on_change=self._on_state_change,
-        )
+        self._controller: OrchestratorController | None = None
         self._log_count = 0
 
     def compose(self) -> ComposeResult:
@@ -57,20 +63,27 @@ class MigratorApp(App[None]):
             yield Static("Agentic Py2Rust Migrator", classes="title")
             yield Static("", id="step-label", classes="step")
             yield Static("", id="workspace-label")
+            yield Static("", id="llm-label")
         with Horizontal(id="main-grid"):
-            with Vertical(id="agents-panel"):
-                yield Static("Agents", classes="panel-title")
-                yield DataTable(id="agents-table", zebra_stripes=True)
+            with Vertical(id="left-column"):
+                with Vertical(id="agents-panel"):
+                    yield Static("Agents", classes="panel-title")
+                    yield DataTable(id="agents-table", zebra_stripes=True)
+                with VerticalScroll(id="paths-panel"):
+                    yield Static("Migration layout", classes="panel-title")
+                    yield Static("", id="paths-text")
+                    yield Static("Last agent summary", classes="panel-title")
+                    yield Static("", id="summary-text")
             with Vertical(id="content-panel"):
                 yield Static("Activity", classes="panel-title")
-                with Vertical(id="review-panel"):
+                with VerticalScroll(id="review-panel"):
                     yield Static("", id="review-title", classes="review-title")
                     yield Static("", id="review-summary")
                     yield Static("", id="review-artifacts")
                 yield RichLog(id="activity-log", highlight=True, markup=True)
         with Container(id="footer-bar"):
             yield Static(
-                "Press [b]r[/b] start · [b]a[/b] approve · [b]s[/b] feedback · [b]q[/b] quit",
+                "r start · a approve · s feedback · m change model · q quit",
                 id="help-line",
             )
             with Horizontal(id="human-input-row", classes="hidden"):
@@ -83,14 +96,21 @@ class MigratorApp(App[None]):
             yield Static("", id="status-line")
         yield Footer()
 
-    async def _on_state_change(self, _state: OrchestratorState) -> None:
-        self.state_version += 1
+    async def on_mount(self) -> None:
+        if self._model_choice is None:
+            choice = await self.push_screen_wait(
+                ModelSelectScreen(self._workspace)
+            )
+            if choice is None:
+                self.exit(1)
+                return
+            self._model_choice = choice
+        await self._init_controller(self._model_choice)
 
-    def on_mount(self) -> None:
         table = self.query_one("#agents-table", DataTable)
         table.cursor_type = "none"
-        table.add_column("Agent", key="agent")
-        table.add_column("Status", key="status")
+        table.add_column("Agent", key="agent", width=12)
+        table.add_column("Status", key="status", width=10)
         table.add_column("Detail", key="detail")
         for agent_id in AgentId:
             table.add_row(
@@ -101,6 +121,22 @@ class MigratorApp(App[None]):
             )
         self._refresh_ui()
 
+    async def _init_controller(self, choice: ModelChoice) -> None:
+        layout = MigrationLayout.from_source_project(self._workspace)
+        executor = MigrationExecutor(layout)
+        llm = create_llm_client(choice, executor)
+        await verify_model_choice(choice, executor)
+        self._state.llm_display = llm.display_name()
+        self._controller = OrchestratorController(
+            self._state,
+            llm,
+            on_change=self._on_state_change,
+            layout=layout,
+        )
+
+    async def _on_state_change(self, _state: OrchestratorState) -> None:
+        self.state_version += 1
+
     def watch_state_version(self, _version: int) -> None:
         self._append_new_logs()
         self._refresh_ui()
@@ -108,7 +144,11 @@ class MigratorApp(App[None]):
     def _append_new_logs(self) -> None:
         log_widget = self.query_one("#activity-log", RichLog)
         for entry in self._state.log[self._log_count :]:
-            log_widget.write(entry.format_line(), shrink=False)
+            line = entry.format_line()
+            if entry.level == "error":
+                log_widget.write(Text(line, style="bold red"), shrink=False)
+            else:
+                log_widget.write(line, shrink=False)
         self._log_count = len(self._state.log)
 
     def _refresh_ui(self) -> None:
@@ -119,8 +159,22 @@ class MigratorApp(App[None]):
             step_text = f"Step {step.step_number}/7 — {step.label}"
         self.query_one("#step-label", Static).update(step_text)
         self.query_one("#workspace-label", Static).update(
-            f"Workspace: {state.workspace}"
+            f"Source project: {state.workspace}"
         )
+        self.query_one("#llm-label", Static).update(
+            f"LLM: {state.llm_display or 'not configured'}"
+        )
+
+        if state.layout is not None:
+            self.query_one("#paths-text", Static).update(state.layout.describe_paths())
+        else:
+            layout = MigrationLayout.from_source_project(state.workspace)
+            self.query_one("#paths-text", Static).update(layout.describe_paths())
+
+        summary = state.last_agent_summary.strip() or "(no agent output yet)"
+        if len(summary) > 800:
+            summary = summary[:800] + "…"
+        self.query_one("#summary-text", Static).update(summary)
 
         table = self.query_one("#agents-table", DataTable)
         for agent_id in AgentId:
@@ -136,7 +190,10 @@ class MigratorApp(App[None]):
             review_panel.add_class("visible")
             human_row.remove_class("hidden")
             self.query_one("#review-title", Static).update(state.review.title)
-            self.query_one("#review-summary", Static).update(state.review.summary)
+            review_body = state.review.summary
+            if len(review_body) > 1200:
+                review_body = review_body[:1200] + "\n… (truncated in UI)"
+            self.query_one("#review-summary", Static).update(review_body)
             artifacts = (
                 "Artifacts: " + ", ".join(state.review.artifacts)
                 if state.review.artifacts
@@ -148,7 +205,7 @@ class MigratorApp(App[None]):
             human_row.add_class("hidden")
 
         if state.awaiting_human:
-            status = "⏸  Waiting for your review — approve or send feedback"
+            status = "⏸  Waiting for your review — approve (a) or send feedback (s)"
         elif state.running:
             status = "▶  Migration in progress"
         elif step == WorkflowStep.DONE:
@@ -157,9 +214,14 @@ class MigratorApp(App[None]):
             status = "Press r to start the migration pipeline"
         self.query_one("#status-line", Static).update(status)
 
+    def _require_controller(self) -> OrchestratorController:
+        if self._controller is None:
+            raise RuntimeError("Controller not initialized")
+        return self._controller
+
     def _resume_workflow(self) -> None:
         if self._state.running and not self._state.awaiting_human:
-            self._controller.resume()
+            self._require_controller().resume()
 
     @on(Button.Pressed, "#btn-approve")
     def on_approve_pressed(self) -> None:
@@ -181,7 +243,7 @@ class MigratorApp(App[None]):
 
     @work(exclusive=True)
     async def _approve_work(self) -> None:
-        if await self._controller.approve_review():
+        if await self._require_controller().approve_review():
             self._resume_workflow()
 
     def action_submit_feedback(self) -> None:
@@ -193,7 +255,7 @@ class MigratorApp(App[None]):
     @work(exclusive=True)
     async def _feedback_work(self) -> None:
         text = self.query_one("#feedback-input", Input).value
-        if await self._controller.submit_feedback(text):
+        if await self._require_controller().submit_feedback(text):
             self.query_one("#feedback-input", Input).value = ""
             self._resume_workflow()
 
@@ -205,7 +267,28 @@ class MigratorApp(App[None]):
 
     @work(exclusive=True)
     async def _start_work(self) -> None:
-        await self._controller.start_migration()
+        try:
+            await self._require_controller().start_migration()
+        except LLMConfigurationError as exc:
+            self.notify(str(exc), severity="error", timeout=12)
+            self._state.append_log(str(exc), level="error")
+            self.state_version += 1
+
+    def action_change_model(self) -> None:
+        if self._state.running:
+            self.notify("Stop migration before changing model", severity="warning")
+            return
+        self._change_model_work()
+
+    @work(exclusive=True)
+    async def _change_model_work(self) -> None:
+        choice = await self.push_screen_wait(ModelSelectScreen(self._workspace))
+        if choice is None:
+            return
+        self._model_choice = choice
+        await self._init_controller(choice)
+        self.notify(f"Using {self._state.llm_display}", severity="information")
+        self.state_version += 1
 
 
 def main() -> None:
@@ -216,7 +299,7 @@ def main() -> None:
         "--workspace",
         "-w",
         default=".",
-        help="Path to the Python project being migrated",
+        help="Path to the Python project being migrated (read-only)",
     )
     args = parser.parse_args()
     workspace = str(Path(args.workspace).resolve())

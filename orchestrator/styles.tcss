@@ -3,7 +3,7 @@ Screen {
 }
 
 #header-bar {
-    height: 3;
+    height: 4;
     padding: 0 1;
     background: $primary-darken-2;
     color: $text;
@@ -17,21 +17,44 @@ Screen {
     color: $accent;
 }
 
+#header-bar #llm-label {
+    color: $text-muted;
+}
+
 #main-grid {
     height: 1fr;
 }
 
+#left-column {
+    width: 42;
+    min-width: 36;
+}
+
 #agents-panel {
-    width: 36;
-    min-width: 28;
+    height: 14;
     border: solid $primary-darken-1;
     padding: 0 1;
 }
 
-#agents-panel Static.panel-title {
+#paths-panel {
+    height: 1fr;
+    border: solid $primary-darken-1;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#agents-panel Static.panel-title,
+#paths-panel Static.panel-title,
+#content-panel Static.panel-title {
     text-style: bold;
     padding: 1 0;
     color: $accent;
+}
+
+#paths-text,
+#summary-text {
+    color: $text-muted;
+    padding-bottom: 1;
 }
 
 #agents-table {
@@ -43,15 +66,9 @@ Screen {
     padding: 0 1;
 }
 
-#content-panel Static.panel-title {
-    text-style: bold;
-    padding: 1 0;
-    color: $accent;
-}
-
 #review-panel {
     height: auto;
-    max-height: 14;
+    max-height: 18;
     border: dashed $warning-darken-2;
     padding: 1;
     margin-bottom: 1;
@@ -67,8 +84,13 @@ Screen {
     color: $warning;
 }
 
+#review-summary {
+    padding-bottom: 1;
+}
+
 #activity-log {
     height: 1fr;
+    min-height: 12;
     border: none;
     padding: 0;
 }

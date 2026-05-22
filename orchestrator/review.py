@@ -1,10 +1,11 @@
-"""Build human review panels from workspace artifacts."""
+"""Build human review panels from migration layout artifacts."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from executor_mcp.read_file import read_file_impl
+from orchestrator.migration_layout import MigrationLayout
 from orchestrator.models import ReviewContext, WorkflowStep
 
 _MAX_SUMMARY_CHARS = 2000
@@ -38,15 +39,14 @@ def _read_excerpt(root: Path, rel_path: str, max_lines: int = 40) -> str:
 
 def build_review_context(
     step: WorkflowStep,
-    workspace_root: Path | str,
+    layout: MigrationLayout | None,
     *,
     agent_summary: str = "",
 ) -> ReviewContext | None:
-    """Build review UI content from files on disk."""
-    if step not in _REVIEW_TITLES:
+    """Build review UI content from migration output directories."""
+    if step not in _REVIEW_TITLES or layout is None:
         return None
 
-    root = Path(workspace_root).expanduser().resolve()
     title = _REVIEW_TITLES[step]
     artifacts: list[str] = []
     summary_parts: list[str] = []
@@ -55,45 +55,41 @@ def build_review_context(
         summary_parts.append(agent_summary.strip())
 
     if step == WorkflowStep.REVIEW_PLAN_PY:
-        plan = root / "migration_plan.md"
+        plan = layout.py_tests_root / "migration_plan.md"
         if plan.is_file():
-            artifacts.append("migration_plan.md")
+            artifacts.append(f"py_tests/migration_plan.md")
             summary_parts.append(
-                "### migration_plan.md\n" + _read_excerpt(root, "migration_plan.md")
+                "### migration_plan.md\n"
+                + _read_excerpt(layout.py_tests_root, "migration_plan.md")
             )
         else:
-            summary_parts.append(
-                "migration_plan.md not found — check the activity log."
-            )
-        py_tests = _glob_relative(root, "tests/**/*.py")
-        artifacts.extend(py_tests)
+            summary_parts.append("migration_plan.md not found in py_tests/.")
+        py_tests = _glob_relative(layout.py_tests_root, "tests/**/*.py")
+        artifacts.extend(f"py_tests/{p}" for p in py_tests)
         if py_tests:
             summary_parts.append("### Python tests\n" + ", ".join(py_tests))
         else:
-            summary_parts.append("No Python tests found under tests/.")
+            summary_parts.append("No Python tests under py_tests/tests/.")
 
     elif step == WorkflowStep.REVIEW_RUST_TESTS:
-        rust_tests = _glob_relative(root, "tests/**/*.rs")
-        if not rust_tests:
-            rust_tests = _glob_relative(root, "src/**/*.rs")
-        artifacts.extend(rust_tests)
+        rust_tests = _glob_relative(layout.rust_tests_root, "tests/**/*.rs")
+        artifacts.extend(f"rust_tests/{p}" for p in rust_tests)
         if rust_tests:
             first = rust_tests[0]
             summary_parts.append(
-                f"### {first}\n" + _read_excerpt(root, first)
+                f"### {first}\n" + _read_excerpt(layout.rust_tests_root, first)
             )
             if len(rust_tests) > 1:
-                summary_parts.append(
-                    "Also: " + ", ".join(rust_tests[1:])
-                )
+                summary_parts.append("Also: " + ", ".join(rust_tests[1:]))
         else:
-            summary_parts.append("No Rust test files found.")
+            summary_parts.append("No Rust test files in rust_tests/tests/.")
 
     elif step == WorkflowStep.REVIEW_RUST_CODE:
+        root = layout.rust_root
         for name in ("Cargo.toml", "src/lib.rs", "src/main.rs"):
             if (root / name).is_file():
-                artifacts.append(name)
-        artifacts.extend(_glob_relative(root, "src/**/*.rs"))
+                artifacts.append(f"rust/{name}")
+        artifacts.extend(f"rust/{p}" for p in _glob_relative(root, "src/**/*.rs"))
         artifacts = list(dict.fromkeys(artifacts))
         if (root / "Cargo.toml").is_file():
             summary_parts.append(
@@ -101,11 +97,9 @@ def build_review_context(
             )
         lib = root / "src/lib.rs"
         if lib.is_file():
-            summary_parts.append(
-                "### src/lib.rs\n" + _read_excerpt(root, "src/lib.rs")
-            )
+            summary_parts.append("### src/lib.rs\n" + _read_excerpt(root, "src/lib.rs"))
         elif not artifacts:
-            summary_parts.append("No Rust source files found.")
+            summary_parts.append("No Rust source files in rust/.")
 
     summary = "\n\n".join(summary_parts) if summary_parts else "Review the listed artifacts."
     if len(summary) > _MAX_SUMMARY_CHARS:

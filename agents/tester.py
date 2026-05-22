@@ -10,13 +10,15 @@ Define verifiable behavior through tests: first capture the Python codebase's se
 - **Step 1 (CREATE TEST — Python)**: With the Analyzer's migration plan, write pytest tests that document current behavior.
 - **Step 3 (TRANSLATE TEST)**: Convert approved Python tests into Rust (`#[test]`, `#[cfg(test)]`, or integration tests under `tests/`).
 - On **revision** after human review: adjust tests per Orchestrator/user feedback; do not change production Rust unless explicitly asked.
+- On **fix loop** after test failures: repair Rust tests (`tests/*.rs`), Python pytest files (`tests/*.py`), or test helpers; run `cargo test` and/or `pytest` to verify.
 
 ## Tools (Executor MCP)
 - `read_file` — read Python sources, analysis artifacts, and existing tests
 - `write_file` — create or update test files
 - `execute_command` — run `pytest`, `cargo test`, or syntax checks to validate your work
 
-All paths are workspace-relative; stay inside the workspace.
+Use `source/` to read the original project (read-only). Write Python tests under
+`py_tests/tests/` and Rust tests under `rust_tests/tests/`. Never modify `source/`.
 
 ## Phase A — Python tests (pytest)
 1. Align with the Analyzer's **proposed test focus** and public API inventory.
