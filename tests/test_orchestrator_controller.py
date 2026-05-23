@@ -12,7 +12,7 @@ from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout
 from orchestrator.models import AgentId, AgentStatus, WorkflowStep
 from orchestrator.state import OrchestratorState
-from orchestrator.step_runner import StepRunner
+from orchestrator.step_runner import StepRunResult, StepRunner
 from tests.stub_llm import StubLLM
 
 
@@ -107,6 +107,42 @@ def test_feedback_requires_non_empty_text(tmp_path: Path) -> None:
 def test_human_review_steps() -> None:
     assert WorkflowStep.REVIEW_PLAN_PY.is_human_review
     assert WorkflowStep.CREATE_TEST_PY.is_human_review is False
+
+
+def test_step_failure_pauses_for_human_review(tmp_path: Path) -> None:
+    controller = _controller(tmp_path)
+    run_count = 0
+
+    async def failing_run(step: WorkflowStep) -> StepRunResult:
+        nonlocal run_count
+        run_count += 1
+        return StepRunResult(
+            success=False,
+            summary="Agent failed",
+            allow_advance=False,
+        )
+
+    controller._runner.run = failing_run  # type: ignore[method-assign]
+
+    async def run() -> None:
+        controller.state.workflow_step = WorkflowStep.CREATE_TEST_PY
+        controller.state.running = True
+        controller._pause.set()
+        task = asyncio.create_task(controller._run_loop())
+        for _ in range(120):
+            if controller.state.awaiting_human:
+                break
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    _run(run())
+    assert run_count == 1
+    assert controller.state.workflow_step == WorkflowStep.CREATE_TEST_PY
+    assert controller.state.review is not None
+    assert "Step failed" in controller.state.review.title
 
 
 def test_run_tests_failure_pauses_for_human_review(tmp_path: Path) -> None:

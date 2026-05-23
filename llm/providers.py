@@ -46,7 +46,7 @@ class ProviderSpec:
 
     def is_configured(self) -> bool:
         if self.id == "cursor_bridge":
-            return bool((os.environ.get(self.base_url_env) or "").strip())
+            return self.base_url() is not None
         return bool(self.api_key())
 
 
@@ -56,7 +56,18 @@ OPENAI_PROVIDER = ProviderSpec(
     api_key_env="OPENAI_API_KEY",
     base_url_env="OPENAI_BASE_URL",
     default_base_url=None,
-    default_models=("gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"),
+    default_models=(
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.2-pro",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5",
+        "o3-pro",
+        "o3",
+        "gpt-4.1",
+        "gpt-4o",
+    ),
     discovery_hint="Set OPENAI_API_KEY (optional OPENAI_BASE_URL for proxies).",
 )
 
@@ -69,8 +80,9 @@ CURSOR_BRIDGE_PROVIDER = ProviderSpec(
     fallback_api_key_env="CURSOR_API_KEY",
     default_models=("auto", "gpt-4o", "claude-sonnet-4"),
     discovery_hint=(
-        "Run a Cursor OpenAI-compatible bridge on localhost (e.g. cursor-api-proxy) "
-        "and set CURSOR_BRIDGE_BASE_URL (default http://127.0.0.1:8765/v1)."
+        "Run a Cursor OpenAI-compatible bridge on localhost (e.g. cursor-api-proxy). "
+        "Optional: CURSOR_BRIDGE_BASE_URL (default http://127.0.0.1:8765/v1), "
+        "CURSOR_BRIDGE_API_KEY or CURSOR_API_KEY."
     ),
 )
 

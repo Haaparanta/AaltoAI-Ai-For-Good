@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from openai import AsyncOpenAI
 
 from llm.errors import LLMConfigurationError
 from llm.openai_client import OpenAIClient
+from llm.openai_models import filter_bridge_models, filter_openai_models
 from llm.providers import ALL_PROVIDERS, ModelChoice, ProviderSpec
+
+_PROBE_TIMEOUT_SECONDS = 12.0
 from orchestrator.migration_executor import MigrationExecutor
 
 
@@ -20,18 +24,36 @@ class ProviderModels:
     models: tuple[str, ...]
 
 
+def _curate_models(spec: ProviderSpec, models: tuple[str, ...]) -> tuple[str, ...]:
+    if spec.id == "openai":
+        curated = filter_openai_models(models)
+        return curated if curated else models
+    if spec.id == "cursor_bridge":
+        curated = filter_bridge_models(models)
+        return curated if curated else models
+    return models
+
+
 async def list_models_for_provider(spec: ProviderSpec) -> tuple[str, ...]:
     """Return model ids from the provider API, or static defaults."""
     api_key = spec.api_key() or "unused"
     base_url = spec.base_url()
     if not base_url and spec.id != "openai":
-        return spec.default_models
+        return _curate_models(spec, spec.default_models)
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-    response = await client.models.list()
+    try:
+        response = await asyncio.wait_for(
+            client.models.list(),
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"{spec.label} did not respond within {_PROBE_TIMEOUT_SECONDS:.0f}s"
+        ) from exc
     ids = [model.id for model in response.data if model.id]
     if ids:
-        return tuple(sorted(set(ids)))
-    return spec.default_models
+        return _curate_models(spec, tuple(sorted(set(ids))))
+    return _curate_models(spec, spec.default_models)
 
 
 async def discover_working_providers() -> list[ProviderModels]:

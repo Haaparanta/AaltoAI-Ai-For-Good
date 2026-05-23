@@ -64,8 +64,8 @@ class ModelSelectScreen(Screen[ModelChoice | None]):
             yield Select([], id="model-select", prompt="Loading…", disabled=True)
             yield Button("Continue", id="btn-continue", variant="primary", disabled=True)
             yield Static(
-                "OpenAI: OPENAI_API_KEY · Cursor: local bridge at "
-                "CURSOR_BRIDGE_BASE_URL (see README)",
+                "OpenAI: OPENAI_API_KEY · Cursor bridge: localhost :8765/v1 "
+                "(optional CURSOR_BRIDGE_BASE_URL / API key — see README)",
                 id="hint-text",
             )
 
@@ -121,7 +121,12 @@ class ModelSelectScreen(Screen[ModelChoice | None]):
         model_select = self.query_one("#model-select", Select)
         provider_id = provider_select.value
         model_id = model_select.value
-        if not provider_id or not model_id or provider_id is Select.BLANK:
+        if (
+            not provider_id
+            or not model_id
+            or provider_id is Select.BLANK
+            or model_id is Select.BLANK
+        ):
             self.notify("Select a provider and model", severity="warning")
             return
         entry = next(p for p in self._providers if p.spec.id == provider_id)
@@ -129,4 +134,4 @@ class ModelSelectScreen(Screen[ModelChoice | None]):
         self.dismiss(choice)
 
     def action_cancel(self) -> None:
-        self.app.exit(1)
+        self.dismiss(None)

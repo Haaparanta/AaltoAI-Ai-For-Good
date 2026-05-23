@@ -86,7 +86,8 @@ sequenceDiagram
 | Variable | When |
 |----------|------|
 | `OPENAI_API_KEY` | OpenAI (optional `OPENAI_BASE_URL`) |
-| `CURSOR_BRIDGE_BASE_URL` | Local Cursor bridge, e.g. `http://127.0.0.1:8765/v1` ([cursor-api-proxy](https://github.com/anyrobert/cursor-api-proxy)) |
+| `CURSOR_BRIDGE_BASE_URL` | Optional override (default `http://127.0.0.1:8765/v1`) for [cursor-api-proxy](https://github.com/anyrobert/cursor-api-proxy) |
+| `CURSOR_BRIDGE_API_KEY` / `CURSOR_API_KEY` | Optional bridge auth |
 
 Providers are checked at startup (`/v1/models`). The app errors only if **none** work.
 

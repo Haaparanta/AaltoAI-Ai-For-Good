@@ -13,7 +13,7 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Static
 
-from llm.discovery import create_llm_client, verify_model_choice
+from llm.discovery import verify_model_choice
 from llm.errors import LLMConfigurationError
 from llm.providers import ModelChoice
 from orchestrator.controller import OrchestratorController
@@ -56,6 +56,7 @@ class MigratorApp(App[None]):
         self._state = OrchestratorState(workspace=workspace)
         self._controller: OrchestratorController | None = None
         self._log_count = 0
+        self._llm_ready = model_choice is not None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -96,17 +97,7 @@ class MigratorApp(App[None]):
             yield Static("", id="status-line")
         yield Footer()
 
-    async def on_mount(self) -> None:
-        if self._model_choice is None:
-            choice = await self.push_screen_wait(
-                ModelSelectScreen(self._workspace)
-            )
-            if choice is None:
-                self.exit(1)
-                return
-            self._model_choice = choice
-        await self._init_controller(self._model_choice)
-
+    def on_mount(self) -> None:
         table = self.query_one("#agents-table", DataTable)
         table.cursor_type = "none"
         table.add_column("Agent", key="agent", width=12)
@@ -120,12 +111,31 @@ class MigratorApp(App[None]):
                 key=agent_id.value,
             )
         self._refresh_ui()
+        self._startup_work()
+
+    @work(exclusive=True)
+    async def _startup_work(self) -> None:
+        try:
+            if self._model_choice is None:
+                choice = await self.push_screen_wait(
+                    ModelSelectScreen(self._workspace)
+                )
+                if choice is None:
+                    self.exit(1)
+                    return
+                self._model_choice = choice
+            await self._init_controller(self._model_choice)
+            self._llm_ready = True
+            self.state_version += 1
+        except LLMConfigurationError as exc:
+            self._state.append_log(str(exc), level="error")
+            self.notify(str(exc), severity="error", timeout=12)
+            self.state_version += 1
 
     async def _init_controller(self, choice: ModelChoice) -> None:
         layout = MigrationLayout.from_source_project(self._workspace)
         executor = MigrationExecutor(layout)
-        llm = create_llm_client(choice, executor)
-        await verify_model_choice(choice, executor)
+        llm = await verify_model_choice(choice, executor)
         self._state.llm_display = llm.display_name()
         self._controller = OrchestratorController(
             self._state,
@@ -210,12 +220,14 @@ class MigratorApp(App[None]):
             status = "▶  Migration in progress"
         elif step == WorkflowStep.DONE:
             status = "✓  Migration complete"
+        elif not self._llm_ready:
+            status = "Setting up LLM…"
         else:
             status = "Press r to start the migration pipeline"
         self.query_one("#status-line", Static).update(status)
 
     def _require_controller(self) -> OrchestratorController:
-        if self._controller is None:
+        if not self._llm_ready or self._controller is None:
             raise RuntimeError("Controller not initialized")
         return self._controller
 
@@ -260,6 +272,9 @@ class MigratorApp(App[None]):
             self._resume_workflow()
 
     def action_start_migration(self) -> None:
+        if not self._llm_ready:
+            self.notify("Still setting up LLM — please wait", severity="warning")
+            return
         if self._state.running:
             self.notify("Migration already running", severity="information")
             return
@@ -269,14 +284,17 @@ class MigratorApp(App[None]):
     async def _start_work(self) -> None:
         try:
             await self._require_controller().start_migration()
-        except LLMConfigurationError as exc:
+        except (LLMConfigurationError, RuntimeError) as exc:
             self.notify(str(exc), severity="error", timeout=12)
             self._state.append_log(str(exc), level="error")
             self.state_version += 1
 
     def action_change_model(self) -> None:
-        if self._state.running:
-            self.notify("Stop migration before changing model", severity="warning")
+        if self._state.running and not self._state.awaiting_human:
+            self.notify(
+                "Pause on a review or step failure before changing model",
+                severity="warning",
+            )
             return
         self._change_model_work()
 
@@ -285,10 +303,16 @@ class MigratorApp(App[None]):
         choice = await self.push_screen_wait(ModelSelectScreen(self._workspace))
         if choice is None:
             return
-        self._model_choice = choice
-        await self._init_controller(choice)
-        self.notify(f"Using {self._state.llm_display}", severity="information")
-        self.state_version += 1
+        try:
+            self._model_choice = choice
+            await self._init_controller(choice)
+            self._llm_ready = True
+            self.notify(f"Using {self._state.llm_display}", severity="information")
+            self.state_version += 1
+        except LLMConfigurationError as exc:
+            self.notify(str(exc), severity="error", timeout=12)
+            self._state.append_log(str(exc), level="error")
+            self.state_version += 1
 
 
 def main() -> None:

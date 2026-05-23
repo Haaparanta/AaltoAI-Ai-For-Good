@@ -22,6 +22,10 @@ from orchestrator.models import (
     is_work_step,
     review_context_for,
 )
+
+_STEP_FAILURE_HINT = (
+    "\n\nApprove (a) to retry this step, or send feedback (s) with instructions."
+)
 from orchestrator.state import OrchestratorState
 from orchestrator.step_runner import StepRunResult, StepRunner
 
@@ -137,6 +141,11 @@ class OrchestratorController:
         self.state.last_user_feedback = ""
         self.state.clear_human_review()
         self.state.reset_agents_to_idle()
+        if is_work_step(step):
+            self.state.append_log(f"Retrying: {step.label}")
+            await self._notify()
+            self._pause.set()
+            return True
         if step == WorkflowStep.RUN_TESTS:
             self.state.workflow_step = WorkflowStep.RUN_TESTS
             self.state.append_log("Retrying: 7 — Run Rust tests")
@@ -162,7 +171,9 @@ class OrchestratorController:
         if not text:
             return False
         review_step = self.state.workflow_step
-        if review_step == WorkflowStep.RUN_TESTS:
+        if is_work_step(review_step):
+            work_step = review_step
+        elif review_step == WorkflowStep.RUN_TESTS:
             lowered = text.lower()
             if "python" in lowered or "pytest" in lowered:
                 work_step = WorkflowStep.CREATE_TEST_PY
@@ -208,6 +219,24 @@ class OrchestratorController:
                 await asyncio.sleep(0.05)
         except asyncio.CancelledError:
             raise
+
+    async def _enter_step_failure_review(
+        self, step: WorkflowStep, result: StepRunResult
+    ) -> None:
+        summary = (result.summary or step.label).strip()
+        self.state.awaiting_human = True
+        self.state.review = ReviewContext(
+            title=f"Step failed: {step.label}",
+            summary=summary + _STEP_FAILURE_HINT,
+        )
+        self.state.reset_agents_to_idle()
+        self.state.set_agent(
+            AgentId.ORCHESTRATOR,
+            AgentStatus.ERROR,
+            detail="Step failed — review required",
+        )
+        self.state.append_log(f"Paused after failure: {step.label}", level="error")
+        await self._notify()
 
     async def _enter_test_failure_review(self, result: StepRunResult) -> None:
         summary = result.summary or "Rust tests failed."
@@ -262,17 +291,7 @@ class OrchestratorController:
             return
 
         if not result.success and not result.allow_advance:
-            self.state.set_agent(
-                AgentId.ORCHESTRATOR,
-                AgentStatus.ERROR,
-                detail="Step failed",
-            )
-            self.state.append_log(
-                f"Step failed: {result.summary or step.label}",
-                level="error",
-            )
-            await self._notify()
-            self._pause.set()
+            await self._enter_step_failure_review(step, result)
             return
 
         if not result.success:
