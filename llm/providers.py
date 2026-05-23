@@ -80,9 +80,9 @@ CURSOR_BRIDGE_PROVIDER = ProviderSpec(
     fallback_api_key_env="CURSOR_API_KEY",
     default_models=("auto", "gpt-4o", "claude-sonnet-4"),
     discovery_hint=(
-        "Run a Cursor OpenAI-compatible bridge on localhost (e.g. cursor-api-proxy). "
-        "Optional: CURSOR_BRIDGE_BASE_URL (default http://127.0.0.1:8765/v1), "
-        "CURSOR_BRIDGE_API_KEY or CURSOR_API_KEY."
+        "Run cursor-api-proxy on localhost (default http://127.0.0.1:8765/v1). "
+        "Export CURSOR_API_KEY before starting the proxy (agent login is not passed through). "
+        "Optional: CURSOR_BRIDGE_BASE_URL."
     ),
 )
 

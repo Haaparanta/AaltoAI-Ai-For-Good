@@ -64,8 +64,8 @@ class ModelSelectScreen(Screen[ModelChoice | None]):
             yield Select([], id="model-select", prompt="Loading…", disabled=True)
             yield Button("Continue", id="btn-continue", variant="primary", disabled=True)
             yield Static(
-                "OpenAI: OPENAI_API_KEY · Cursor bridge: localhost :8765/v1 "
-                "(optional CURSOR_BRIDGE_BASE_URL / API key — see README)",
+                "OpenAI: OPENAI_API_KEY · Cursor bridge: npx cursor-api-proxy "
+                "(export CURSOR_API_KEY first — see README)",
                 id="hint-text",
             )
 

@@ -15,6 +15,10 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "integration: live OpenAI API tests (require OPENAI_API_KEY)",
     )
+    config.addinivalue_line(
+        "markers",
+        "cursor_bridge: live Cursor bridge tests (require npx cursor-api-proxy)",
+    )
 
 
 @pytest.fixture
