@@ -1,0 +1,23 @@
+{
+  "project": "roman_numeral",
+  "generated_at": "2026-05-23T11:30:39.187381+00:00",
+  "config": {
+    "iterations": 10,
+    "warmup": 5,
+    "quick": true,
+    "python_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/roman_numeral_measurements/.python_build/wheels/roman_numeral_python_bench-0.1.0-py3-none-any.whl",
+    "rust_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/roman_numeral_migration_rust/target/wheels/roman_numeral-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+  },
+  "artifacts": {
+    "python_source_bytes": 613,
+    "python_wheel_bytes": 1524,
+    "python_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/roman_numeral_measurements/.python_build/wheels/roman_numeral_python_bench-0.1.0-py3-none-any.whl",
+    "python_build_seconds": 0.49065783293917775,
+    "rust_wheel_bytes": 201237,
+    "rust_native_extension_bytes": 481760,
+    "rust_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/roman_numeral_migration_rust/target/wheels/roman_numeral-0.1.0-cp312-cp312-macosx_11_0_arm64.whl",
+    "rust_build_seconds": 0.0
+  },
+  "case_count": 4,
+  "sample_count": 80
+}

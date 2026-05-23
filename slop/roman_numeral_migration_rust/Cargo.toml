@@ -1,0 +1,11 @@
+[package]
+name = "roman_numeral"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "roman_numeral"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module"] }

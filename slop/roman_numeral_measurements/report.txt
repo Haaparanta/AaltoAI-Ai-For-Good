@@ -1,0 +1,23 @@
+Performance report: roman_numeral
+Generated: 2026-05-23T11:30:38.769017+00:00
+
+Both backends run from installed wheels (Python source wheel vs Rust PyO3 wheel).
+
+Artifacts: Python source 613 B; Python wheel 1.5 KiB (0.49s build); Rust wheel 196.5 KiB (0.00s build); Rust native extension 470.5 KiB.
+
+roman_to_int_large (small): Rust leads with 1.06× speedup (Python 0.86ms vs Rust 0.80ms). Timing CV Python 8.6% vs Rust 10.3%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_large (medium): Rust leads with 1.07× speedup (Python 0.80ms vs Rust 0.74ms). Timing CV Python 8.6% vs Rust 6.1%. Mean peak RSS ratio Rust/Python: 0.99×.
+roman_to_int_large (large): tie leads with 0.96× speedup (Python 0.75ms vs Rust 0.78ms). Timing CV Python 1.6% vs Rust 14.4%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_large (xlarge): tie leads with 0.98× speedup (Python 0.78ms vs Rust 0.79ms). Timing CV Python 3.9% vs Rust 7.3%. Mean peak RSS ratio Rust/Python: 1.02×.
+roman_to_int_medium (small): Rust leads with 1.06× speedup (Python 0.86ms vs Rust 0.80ms). Timing CV Python 8.6% vs Rust 10.3%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_medium (medium): Rust leads with 1.07× speedup (Python 0.80ms vs Rust 0.74ms). Timing CV Python 8.6% vs Rust 6.1%. Mean peak RSS ratio Rust/Python: 0.99×.
+roman_to_int_medium (large): tie leads with 0.96× speedup (Python 0.75ms vs Rust 0.78ms). Timing CV Python 1.6% vs Rust 14.4%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_medium (xlarge): tie leads with 0.98× speedup (Python 0.78ms vs Rust 0.79ms). Timing CV Python 3.9% vs Rust 7.3%. Mean peak RSS ratio Rust/Python: 1.02×.
+roman_to_int_small (small): Rust leads with 1.06× speedup (Python 0.86ms vs Rust 0.80ms). Timing CV Python 8.6% vs Rust 10.3%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_small (medium): Rust leads with 1.07× speedup (Python 0.80ms vs Rust 0.74ms). Timing CV Python 8.6% vs Rust 6.1%. Mean peak RSS ratio Rust/Python: 0.99×.
+roman_to_int_small (large): tie leads with 0.96× speedup (Python 0.75ms vs Rust 0.78ms). Timing CV Python 1.6% vs Rust 14.4%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_small (xlarge): tie leads with 0.98× speedup (Python 0.78ms vs Rust 0.79ms). Timing CV Python 3.9% vs Rust 7.3%. Mean peak RSS ratio Rust/Python: 1.02×.
+roman_to_int_xlarge (small): Rust leads with 1.06× speedup (Python 0.86ms vs Rust 0.80ms). Timing CV Python 8.6% vs Rust 10.3%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_xlarge (medium): Rust leads with 1.07× speedup (Python 0.80ms vs Rust 0.74ms). Timing CV Python 8.6% vs Rust 6.1%. Mean peak RSS ratio Rust/Python: 0.99×.
+roman_to_int_xlarge (large): tie leads with 0.96× speedup (Python 0.75ms vs Rust 0.78ms). Timing CV Python 1.6% vs Rust 14.4%. Mean peak RSS ratio Rust/Python: 1.00×.
+roman_to_int_xlarge (xlarge): tie leads with 0.98× speedup (Python 0.78ms vs Rust 0.79ms). Timing CV Python 3.9% vs Rust 7.3%. Mean peak RSS ratio Rust/Python: 1.02×.

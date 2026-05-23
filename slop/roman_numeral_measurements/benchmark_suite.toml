@@ -1,0 +1,31 @@
+[[cases]]
+name = "roman_to_int_small"
+module = "roman_numeral"
+function = "roman_to_int"
+input_size_tier = "small"
+args_json = "[\"III\"]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "roman_to_int_medium"
+module = "roman_numeral"
+function = "roman_to_int"
+input_size_tier = "medium"
+args_json = "[\"MCMXCIV\"]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "roman_to_int_large"
+module = "roman_numeral"
+function = "roman_to_int"
+input_size_tier = "large"
+args_json = "[\"MMMDCCCLXXXVIII\"]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "roman_to_int_xlarge"
+module = "roman_numeral"
+function = "roman_to_int"
+input_size_tier = "xlarge"
+args_json = "[\"MMMCMXCIXMMMCMXCIXMMMCMXCIXMMMCMXCIX\"]"
+kwargs_json = "{}"
