@@ -14,7 +14,7 @@ behavior is preserved during migration to Rust.
 - On **fix loop** after pytest or flake8/mypy failures: repair Python test files and helpers.
 
 ## Tools (Executor MCP)
-- `get_api_signatures` — load public API `.pyi` stubs for the source project (primary test reference)
+- `get_api_signatures` — load public API `.pyi` stubs for the source project (primary test reference); when a source venv is configured, also returns `installed_packages` for dependency context
 - `read_file` — read Python sources, analysis artifacts, existing tests, and cached stubs under `py_tests/.api_signatures/`
 - `write_file` — create or update test files (Python test files are auto-formatted with black and linted with flake8/mypy)
 - `execute_command` — run `pytest` or syntax checks to validate your work
@@ -23,7 +23,7 @@ Use `source/` to read the original project (read-only). Write Python tests under
 `py_tests/tests/`. Never modify `source/` or Rust artifacts.
 
 ## Workflow
-1. Call `get_api_signatures()` first to list available modules, then fetch specific modules as needed.
+1. Call `get_api_signatures()` first to list available modules, then fetch specific modules as needed. If `installed_packages` is present, use it to understand which third-party imports the source project relies on.
 2. Use API signatures as your **primary reference** for what to test: public functions, classes, methods, type hints, and docstrings.
 3. Align with the Analyzer's **proposed test focus** and public API inventory.
 4. Read `source/` implementation only when stubs are insufficient for behavior (not just types).

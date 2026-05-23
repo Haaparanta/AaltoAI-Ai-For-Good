@@ -11,6 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from executor_mcp.venv_context import (
+    VenvContext,
+    build_import_env,
+    list_installed_packages,
+    resolve_source_venv_from_env,
+)
+
 API_SIGNATURES_DIR = ".api_signatures"
 
 
@@ -27,6 +34,7 @@ class ApiSignaturesResult:
     source: str
     cache_dir: str
     regenerated: bool
+    installed_packages: list[dict[str, str]] | None = None
 
 
 def detect_import_targets(source_root: Path) -> list[str]:
@@ -99,14 +107,50 @@ def _collect_stub_modules(cache_root: Path) -> list[str]:
     return modules
 
 
-def _stubgen_executable() -> str:
+def _stubgen_argv(venv: VenvContext | None = None) -> list[str]:
+    if venv is not None:
+        venv_stubgen = venv.python.with_name("stubgen")
+        if venv_stubgen.is_file():
+            return [str(venv_stubgen)]
     exe = shutil.which("stubgen")
     if exe:
-        return exe
-    venv_stubgen = Path(sys.executable).with_name("stubgen")
-    if venv_stubgen.is_file():
-        return str(venv_stubgen)
+        return [exe]
+    migrator_stubgen = Path(sys.executable).with_name("stubgen")
+    if migrator_stubgen.is_file():
+        return [str(migrator_stubgen)]
+    if venv is not None:
+        return [str(venv.python), "-m", "mypy.stubgen"]
     raise ApiSignaturesError("stubgen not found; install mypy")
+
+
+def _stubgen_command(
+    target: str,
+    *,
+    cache_root: Path,
+    mode: str,
+    venv: VenvContext | None = None,
+) -> list[str]:
+    flag = "-p" if mode == "package" else "-m"
+    return [
+        *_stubgen_argv(venv),
+        "--include-docstrings",
+        "--output",
+        str(cache_root),
+        flag,
+        target,
+    ]
+
+
+def _stubgen_env(
+    source_root: Path,
+    *,
+    venv: VenvContext | None = None,
+) -> dict[str, str]:
+    if venv is not None:
+        return build_import_env(venv, source_root)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join([str(source_root), env.get("PYTHONPATH", "")])
+    return env
 
 
 def _run_stubgen_cli(
@@ -115,18 +159,15 @@ def _run_stubgen_cli(
     source_root: Path,
     cache_root: Path,
     mode: str = "package",
+    venv: VenvContext | None = None,
 ) -> tuple[bool, str]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join([str(source_root), env.get("PYTHONPATH", "")])
-    flag = "-p" if mode == "package" else "-m"
-    cmd = [
-        _stubgen_executable(),
-        "--include-docstrings",
-        "--output",
-        str(cache_root),
-        flag,
+    env = _stubgen_env(source_root, venv=venv)
+    cmd = _stubgen_command(
         target,
-    ]
+        cache_root=cache_root,
+        mode=mode,
+        venv=venv,
+    )
     result = subprocess.run(
         cmd,
         cwd=source_root,
@@ -144,6 +185,7 @@ def _run_stubgen_programmatic(
     *,
     source_root: Path,
     cache_root: Path,
+    venv: VenvContext | None = None,
 ) -> tuple[bool, str]:
     """Fallback stubgen invocations when package mode fails."""
     ok, output = _run_stubgen_cli(
@@ -151,14 +193,14 @@ def _run_stubgen_programmatic(
         source_root=source_root,
         cache_root=cache_root,
         mode="module",
+        venv=venv,
     )
     if ok:
         return True, output
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.pathsep.join([str(source_root), env.get("PYTHONPATH", "")])
+    env = _stubgen_env(source_root, venv=venv)
     cmd = [
-        _stubgen_executable(),
+        *_stubgen_argv(venv),
         "--include-docstrings",
         "--ignore-errors",
         "--output",
@@ -183,6 +225,7 @@ def generate_api_signatures(
     cache_root: Path,
     *,
     refresh: bool = False,
+    venv: VenvContext | None = None,
 ) -> tuple[list[str], str]:
     """Generate .pyi stubs for all detected import targets."""
     if refresh and cache_root.is_dir():
@@ -199,12 +242,20 @@ def generate_api_signatures(
     errors: list[str] = []
 
     for target in targets:
-        ok, output = _run_stubgen_cli(target, source_root=source_root, cache_root=cache_root)
+        ok, output = _run_stubgen_cli(
+            target,
+            source_root=source_root,
+            cache_root=cache_root,
+            venv=venv,
+        )
         if ok:
             sources.append("stubgen")
             continue
         ok, fallback_output = _run_stubgen_programmatic(
-            target, source_root=source_root, cache_root=cache_root
+            target,
+            source_root=source_root,
+            cache_root=cache_root,
+            venv=venv,
         )
         if ok:
             sources.append("programmatic")
@@ -228,6 +279,7 @@ def get_api_signatures_impl(
     *,
     module: str | None = None,
     refresh: bool = False,
+    venv: VenvContext | None = None,
 ) -> ApiSignaturesResult:
     """Return cached or freshly generated API signature stubs."""
     cache_tool_path = f"py_tests/{API_SIGNATURES_DIR}/"
@@ -236,12 +288,19 @@ def get_api_signatures_impl(
     existing = _collect_stub_modules(cache_root)
     if refresh or not existing:
         modules, source = generate_api_signatures(
-            source_root, cache_root, refresh=refresh
+            source_root,
+            cache_root,
+            refresh=refresh,
+            venv=venv,
         )
         regenerated = True
     else:
         modules = existing
         source = "cache"
+
+    installed: list[dict[str, str]] | None = None
+    if venv is not None:
+        installed = list_installed_packages(venv)
 
     content: str | None = None
     if module:
@@ -259,6 +318,7 @@ def get_api_signatures_impl(
         source=source,
         cache_dir=cache_tool_path,
         regenerated=regenerated,
+        installed_packages=installed,
     )
 
 
@@ -271,6 +331,8 @@ def result_to_dict(result: ApiSignaturesResult) -> dict[str, Any]:
     }
     if result.content is not None:
         payload["content"] = result.content
+    if result.installed_packages is not None:
+        payload["installed_packages"] = result.installed_packages
     return payload
 
 
@@ -305,12 +367,14 @@ def register(mcp: Any, workspace_root: Path) -> None:
     ) -> dict[str, Any]:
         """Load public API signatures (.pyi stubs) for the source project."""
         source_root, cache_root = resolve_api_roots(workspace_root)
+        venv = resolve_source_venv_from_env()
         try:
             result = get_api_signatures_impl(
                 source_root,
                 cache_root,
                 module=module,
                 refresh=refresh,
+                venv=venv,
             )
         except ApiSignaturesError as exc:
             raise ValueError(str(exc)) from exc

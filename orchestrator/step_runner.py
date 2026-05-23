@@ -18,8 +18,9 @@ from agents.runner import (
     fix_agents_for_migration_pytest_output,
     fix_agents_for_pytest_output,
 )
-from executor_mcp.python_test_quality import lint_tree, tree_lint_output
+from executor_mcp.python_test_quality import lint_log_lines, lint_tree, tree_lint_output
 from executor_mcp.rust_wheel import build_and_install_wheel
+from executor_mcp.venv_context import build_import_env
 from llm.types import LLMClient
 from orchestrator.activity_log import (
     first_non_empty_line,
@@ -155,7 +156,12 @@ class StepRunner:
                 if not result.success:
                     return StepRunResult(
                         success=False,
-                        summary=result.summary,
+                        summary=(
+                            f"Step 1 failed: agent run failed ({result.summary or 'see activity log'}). "
+                            "Orchestrator gates (flake8/mypy, pytest) did not run yet."
+                            if step == WorkflowStep.CREATE_TEST_PY
+                            else result.summary or "Agent run failed."
+                        ),
                         allow_advance=False,
                     )
                 summaries.append(result.summary)
@@ -242,7 +248,10 @@ class StepRunner:
     def _layout(self) -> MigrationLayout:
         if self.state.layout is not None:
             return self.state.layout
-        layout = MigrationLayout.from_source_project(self.state.workspace)
+        layout = MigrationLayout.from_source_project(
+            self.state.workspace,
+            source_venv=self.state.source_venv,
+        )
         layout.ensure_scaffold()
         self.state.layout = layout
         return layout
@@ -253,15 +262,34 @@ class StepRunner:
 
         layout = self._layout()
         layout.ensure_scaffold()
-        self.state.append_log("Orchestrator: running flake8/mypy on Python tests")
+        self.state.set_agent(
+            AgentId.EXECUTOR,
+            AgentStatus.RUNNING,
+            detail="flake8/mypy gate",
+        )
         await self._notify()
+        self.state.append_log("Orchestrator: running flake8/mypy gate on py_tests/tests/")
         lint_result = await asyncio.to_thread(
             lint_tree,
             layout.py_tests_root,
             source_root=layout.source_root,
+            source_venv=layout.source_venv,
         )
+        for line in lint_log_lines("flake8", lint_result.flake8):
+            self.state.append_log(line)
+        for line in lint_log_lines("mypy", lint_result.mypy):
+            self.state.append_log(line)
+        await self._notify()
+
         if lint_result.lint_passed:
-            self.state.last_agent_summary = "Python test lint passed (flake8, mypy)."
+            self.state.set_agent(
+                AgentId.EXECUTOR,
+                AgentStatus.COMPLETED,
+                detail="flake8/mypy passed",
+            )
+            self.state.last_agent_summary = (
+                "Python test lint passed (flake8, mypy). See activity log for commands."
+            )
             self.state.append_log("Orchestrator: flake8/mypy passed")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
@@ -273,7 +301,7 @@ class StepRunner:
                 level="error",
             )
         self.state.append_log(
-            "Orchestrator: flake8/mypy failed — dispatching Py Tester to fix Python tests"
+            "Orchestrator: flake8/mypy gate failed — dispatching Py Tester to fix Python tests"
         )
         await self._dispatch_fix_agents(
             fix_agents_for_lint_output(output),
@@ -282,18 +310,39 @@ class StepRunner:
             failure_label="flake8/mypy",
             message_phase="lint_fix",
         )
+        self.state.append_log("Orchestrator: re-running flake8/mypy gate after fix attempt")
         lint_result2 = await asyncio.to_thread(
             lint_tree,
             layout.py_tests_root,
             source_root=layout.source_root,
+            source_venv=layout.source_venv,
         )
+        for line in lint_log_lines("flake8", lint_result2.flake8):
+            self.state.append_log(line)
+        for line in lint_log_lines("mypy", lint_result2.mypy):
+            self.state.append_log(line)
+        await self._notify()
+
         if lint_result2.lint_passed:
-            self.state.last_agent_summary = "Python test lint passed after fix."
+            self.state.set_agent(
+                AgentId.EXECUTOR,
+                AgentStatus.COMPLETED,
+                detail="flake8/mypy passed",
+            )
+            self.state.last_agent_summary = (
+                "Python test lint passed after fix. See activity log for commands."
+            )
             self.state.append_log("Orchestrator: flake8/mypy passed after fix")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
+        self.state.set_agent(
+            AgentId.EXECUTOR,
+            AgentStatus.ERROR,
+            detail="flake8/mypy failed",
+        )
         self.state.last_agent_summary = (
-            "flake8/mypy still failing after fix attempt. See activity log."
+            "Step 1 failed: flake8/mypy gate still failing after fix attempt. "
+            "See activity log for commands and output."
         )
         return StepRunResult(
             success=False,
@@ -305,32 +354,40 @@ class StepRunner:
         if not self._workspace_has_pytest_files():
             return StepRunResult(success=True, summary="No Python tests to verify.")
 
-        self.state.append_log("Orchestrator: running pytest baseline")
+        self.state.append_log("Orchestrator: running pytest baseline gate on py_tests/tests/")
         await self._notify()
         exit_code, output = await self._execute_pytest(baseline=True)
         if exit_code == 0:
-            self.state.last_agent_summary = "Python baseline tests passed (pytest)."
+            self.state.last_agent_summary = (
+                "Python baseline tests passed (pytest). See activity log for command output."
+            )
             self.state.append_log("Orchestrator: pytest baseline passed")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.append_log(
-            "Orchestrator: pytest failed — dispatching Py Tester to fix Python tests"
+            "Orchestrator: pytest baseline gate failed — dispatching Py Tester to fix Python tests"
         )
         await self._dispatch_fix_agents(
             fix_agents_for_pytest_output(output),
             step=WorkflowStep.CREATE_TEST_PY,
             failure_output=output,
-            failure_label="pytest",
+            failure_label="pytest baseline",
             message_phase="pytest_fix",
         )
-        exit_code2, _output2 = await self._execute_pytest(baseline=True)
+        self.state.append_log(
+            "Orchestrator: re-running pytest baseline gate after fix attempt"
+        )
+        exit_code2, _output2 = await self._execute_pytest(baseline=True, retry=True)
         if exit_code2 == 0:
-            self.state.last_agent_summary = "Python tests passed after fix."
+            self.state.last_agent_summary = (
+                "Python baseline tests passed after fix. See activity log for command output."
+            )
             self.state.append_log("Orchestrator: pytest baseline passed after fix")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.last_agent_summary = (
-            "pytest still failing after fix attempt. See activity log."
+            "Step 1 failed: pytest baseline gate still failing after fix attempt. "
+            "Lint may have passed — see activity log for pytest command and output."
         )
         return StepRunResult(
             success=False,
@@ -586,12 +643,16 @@ class StepRunner:
         self.state.set_agent(AgentId.EXECUTOR, AgentStatus.RUNNING, detail=label)
         await self._notify()
         layout = self._layout()
-        env = (
-            {"PYTHONPATH": str(layout.source_root)}
-            if baseline
-            else {"PYTHONPATH": ""}
-        )
-        command = "pytest -q"
+        if baseline:
+            if layout.source_venv is not None:
+                env = build_import_env(layout.source_venv, layout.source_root)
+                command = f"{layout.source_venv.python} -m pytest -q"
+            else:
+                env = {"PYTHONPATH": str(layout.source_root)}
+                command = "pytest -q"
+        else:
+            env = {"PYTHONPATH": ""}
+            command = "pytest -q"
         self.state.append_log(
             format_command_started(command, cwd=PREFIX_PY_TESTS)
         )

@@ -117,6 +117,11 @@ def test_create_test_py_lint_gate_passes(
         assert result.success
         assert (migration_layout.py_tests_root / ".flake8").is_file()
         assert (migration_layout.py_tests_root / "mypy.ini").is_file()
+        log_text = "\n".join(entry.message for entry in runner.state.log)
+        assert "Orchestrator: running flake8/mypy gate" in log_text
+        assert "Executor: flake8 (exit 0)" in log_text
+        assert "Executor: mypy (exit 0)" in log_text
+        assert "Orchestrator: running pytest baseline gate" in log_text
 
     _run(run())
 

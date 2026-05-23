@@ -17,6 +17,7 @@ from executor_mcp.execute_command import execute_command_impl
 from executor_mcp.paths import PathSecurityError
 from executor_mcp.python_test_quality import format_and_lint, format_lint_to_dict
 from executor_mcp.read_file import ReadFileError, read_file_impl
+from executor_mcp.venv_context import build_import_env
 from executor_mcp.write_file import WriteFileError, write_file_impl
 
 from orchestrator.migration_layout import MigrationLayout
@@ -272,6 +273,14 @@ class MigrationExecutor:
                     if isinstance(extra_env, dict)
                     else None
                 )
+                if self.layout.source_venv is not None:
+                    merged = build_import_env(
+                        self.layout.source_venv,
+                        self.layout.source_root,
+                    )
+                    if env:
+                        merged.update(env)
+                    env = merged
                 result = await execute_command_impl(
                     cwd,
                     arguments["command"],
@@ -319,6 +328,7 @@ class MigrationExecutor:
                 file_path,
                 source_root=self.layout.source_root,
                 py_tests_root=self.layout.py_tests_root,
+                source_venv=self.layout.source_venv,
             )
             payload: dict[str, Any] = {
                 "ok": True,
@@ -344,6 +354,7 @@ class MigrationExecutor:
             self.layout.api_signatures_cache_root,
             module=arguments.get("module"),
             refresh=arguments.get("refresh", False),
+            venv=self.layout.source_venv,
         )
         return {"ok": True, **result_to_dict(result)}
 

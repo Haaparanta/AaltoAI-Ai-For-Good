@@ -80,6 +80,36 @@ def test_get_api_signatures_tool(
     _run(run())
 
 
+def test_get_api_signatures_includes_installed_packages_with_source_venv(
+    repo_venv: Path,
+) -> None:
+    fixture_root = Path(__file__).resolve().parent / "fixtures" / "sample_project"
+    layout = MigrationLayout.from_source_project(
+        fixture_root,
+        source_venv=repo_venv,
+    )
+    layout.ensure_scaffold()
+    executor = MigrationExecutor(layout)
+
+    async def run() -> None:
+        raw = await executor.call_tool("get_api_signatures", {"refresh": True})
+        payload = json.loads(raw)
+        assert payload["ok"] is True
+        assert "installed_packages" in payload
+        assert isinstance(payload["installed_packages"], list)
+        assert payload["installed_packages"]
+
+    _run(run())
+
+
+@pytest.fixture
+def repo_venv() -> Path:
+    root = Path(__file__).resolve().parents[1] / ".venv"
+    if not (root / "pyvenv.cfg").is_file():
+        pytest.skip("repo .venv not present")
+    return root
+
+
 def test_get_api_signatures_unknown_module(migration_executor: MigrationExecutor) -> None:
     async def run() -> None:
         raw = await migration_executor.call_tool(

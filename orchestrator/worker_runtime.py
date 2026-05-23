@@ -101,7 +101,10 @@ class OrchestratorWorkerRuntime:
         return await self.run(self._init_controller(choice))
 
     async def _init_controller(self, choice: ModelChoice) -> ProgressSnapshot:
-        layout = MigrationLayout.from_source_project(self._state.workspace)
+        layout = MigrationLayout.from_source_project(
+            self._state.workspace,
+            source_venv=self._state.source_venv,
+        )
         executor = MigrationExecutor(layout)
         llm = await verify_model_choice(choice, executor)
         self._state.llm_display = llm.display_name()
@@ -121,7 +124,10 @@ class OrchestratorWorkerRuntime:
     def detect_progress(self) -> ProgressSnapshot:
         if self._controller is not None:
             return self._controller.detect_progress()
-        layout = MigrationLayout.from_source_project(self._state.workspace)
+        layout = MigrationLayout.from_source_project(
+            self._state.workspace,
+            source_venv=self._state.source_venv,
+        )
         from orchestrator.progress import detect_migration_progress
 
         return detect_migration_progress(layout)

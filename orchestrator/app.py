@@ -58,11 +58,21 @@ class MigratorApp(App[None]):
 
     state_version = reactive(0)
 
-    def __init__(self, workspace: str = ".", *, model_choice: ModelChoice | None = None) -> None:
+    def __init__(
+        self,
+        workspace: str = ".",
+        *,
+        source_venv: str | None = None,
+        model_choice: ModelChoice | None = None,
+    ) -> None:
         super().__init__()
         self._workspace = workspace
+        self._source_venv = source_venv
         self._model_choice = model_choice
-        self._state = OrchestratorState(workspace=workspace)
+        self._state = OrchestratorState(
+            workspace=workspace,
+            source_venv=source_venv,
+        )
         self._runtime: OrchestratorWorkerRuntime | None = None
         self._log_count = 0
         self._llm_ready = model_choice is not None
@@ -289,9 +299,10 @@ class MigratorApp(App[None]):
             f"▶ {active_runs}/{slots} slots"
         )
 
-        self.query_one("#workspace-label", Static).update(
-            f"Source project: {state.workspace}"
-        )
+        workspace_label = f"Source project: {state.workspace}"
+        if state.source_venv:
+            workspace_label = f"{workspace_label} · venv: {state.source_venv}"
+        self.query_one("#workspace-label", Static).update(workspace_label)
         self.query_one("#llm-label", Static).update(
             f"LLM: {state.llm_display or 'not configured'}"
         )
@@ -315,7 +326,10 @@ class MigratorApp(App[None]):
         if state.layout is not None:
             paths_text = state.layout.describe_paths()
         else:
-            layout = MigrationLayout.from_source_project(state.workspace)
+            layout = MigrationLayout.from_source_project(
+                state.workspace,
+                source_venv=state.source_venv,
+            )
             paths_text = layout.describe_paths()
         if self._detected_progress is not None and self._detected_progress.is_resumable:
             paths_text += f"\n\nDetected: {self._detected_progress.display_label()}"
@@ -634,6 +648,10 @@ def main() -> None:
         help="Path to the Python project being migrated (read-only)",
     )
     parser.add_argument(
+        "--source-venv",
+        help="Path to a Python venv with the source project's dependencies installed",
+    )
+    parser.add_argument(
         "--resume",
         choices=("auto", "fresh"),
         default="auto",
@@ -646,9 +664,13 @@ def main() -> None:
     )
     args = parser.parse_args()
     workspace = str(Path(args.workspace).resolve())
+    source_venv = str(Path(args.source_venv).resolve()) if args.source_venv else None
 
     if args.detect_only:
-        layout = MigrationLayout.from_source_project(workspace)
+        layout = MigrationLayout.from_source_project(
+            workspace,
+            source_venv=source_venv,
+        )
         from orchestrator.progress import detect_migration_progress
 
         progress = detect_migration_progress(layout)
@@ -658,7 +680,7 @@ def main() -> None:
         print(f"confidence={progress.confidence.value}")
         raise SystemExit(0)
 
-    app = MigratorApp(workspace=workspace)
+    app = MigratorApp(workspace=workspace, source_venv=source_venv)
     app._default_force_fresh = args.resume == "fresh"
     app.run()
 

@@ -13,7 +13,7 @@ Read the target Python project and produce a clear, actionable **migration analy
 ## Tools (Executor MCP)
 Use only these tools. Read the original project under `source/` (read-only).
 Write `migration_plan.md` to `py_tests/`. Never modify `source/`:
-- `get_api_signatures` — load public API `.pyi` stubs to inventory the external surface
+- `get_api_signatures` — load public API `.pyi` stubs to inventory the external surface; when a source venv is configured, the response also includes `installed_packages` (name/version pairs) as dependency reference data
 - `read_file` — inspect source, configs, and existing tests
 - `write_file` — save analysis artifacts (e.g. `migration_plan.md`)
 - `execute_command` — list dirs, run `python -m py_compile`, inspect deps (`pip show`, `uv tree`), or read package metadata when needed
@@ -23,7 +23,7 @@ Do not access paths outside the workspace.
 ## Responsibilities
 1. **Layout**: packages vs. modules, entry points (`__main__`, CLIs, scripts), `pyproject.toml` / `setup.cfg` / `requirements.txt`.
 2. **Public surface**: functions, classes, and constants intended for external use; distinguish from private helpers.
-3. **Dependencies**: third-party libraries and how they are used (stdlib-only vs. heavy frameworks).
+3. **Dependencies**: third-party libraries and how they are used (stdlib-only vs. heavy frameworks). When `get_api_signatures()` returns `installed_packages`, cross-check that list against `requirements.txt` / `pyproject.toml` in `source/`; Rust crate choices remain manual guidance only.
 4. **Behavior**: control flow, error handling, I/O, concurrency, and side effects worth preserving in Rust.
 5. **Risk map**: dynamic typing, reflection, `eval`, C extensions, platform-specific code, and patterns that are hard to translate literally.
 6. **Suggested Rust shape**: recommended crate layout (`src/lib.rs`, bins), and which Python modules map to which Rust modules (guidance only — the Translator implements code).

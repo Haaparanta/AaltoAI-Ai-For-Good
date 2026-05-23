@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +26,36 @@ from orchestrator.state import OrchestratorState
 from orchestrator.write_context import current_run_id
 
 StateNotify = Callable[[], Awaitable[None] | None]
+
+
+def _append_write_file_lint_logs(
+    state: OrchestratorState,
+    *,
+    run_id: str,
+    role: AgentId,
+    payload: dict[str, Any],
+) -> None:
+    lint = payload.get("lint")
+    if not isinstance(lint, dict):
+        return
+    for tool_name in ("flake8", "mypy"):
+        tool_result = lint.get(tool_name)
+        if not isinstance(tool_result, dict):
+            continue
+        passed = tool_result.get("passed")
+        command = tool_result.get("command", "")
+        output = str(tool_result.get("output", "")).strip()
+        status = "passed" if passed else "failed"
+        state.append_log(
+            f"write_file lint {tool_name}: {status}",
+            run_id=run_id,
+            role=role,
+        )
+        if command:
+            state.append_log(f"  $ {command}", run_id=run_id, role=role)
+        if output:
+            for line in output.splitlines()[-10:]:
+                state.append_log(f"  {line}", run_id=run_id, role=role)
 
 
 @dataclass
@@ -287,6 +318,23 @@ class AgentPool:
                     run_id=run_id,
                     role=role,
                 )
+            elif tool_name == "write_file":
+                self.state.append_log(
+                    f"{tool_name} {detail}",
+                    run_id=run_id,
+                    role=role,
+                )
+                try:
+                    payload = json.loads(result)
+                except json.JSONDecodeError:
+                    payload = None
+                if isinstance(payload, dict):
+                    _append_write_file_lint_logs(
+                        self.state,
+                        run_id=run_id,
+                        role=role,
+                        payload=payload,
+                    )
             else:
                 self.state.append_log(
                     f"{tool_name} {detail}",

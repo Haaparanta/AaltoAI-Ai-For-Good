@@ -9,6 +9,21 @@ import pytest
 from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_SOURCE
 
 
+def test_describe_paths_includes_source_venv(workspace_root: Path) -> None:
+    layout = MigrationLayout.from_source_project(workspace_root)
+    text = layout.describe_paths()
+    assert "Source venv: (not configured)" in text
+
+    repo_venv = Path(__file__).resolve().parents[1] / ".venv"
+    if not (repo_venv / "pyvenv.cfg").is_file():
+        pytest.skip("repo .venv not present")
+    layout_with_venv = MigrationLayout.from_source_project(
+        workspace_root,
+        source_venv=repo_venv,
+    )
+    assert f"Source venv: {repo_venv.resolve()}" in layout_with_venv.describe_paths()
+
+
 def test_sibling_directory_names(workspace_root: Path) -> None:
     layout = MigrationLayout.from_source_project(workspace_root)
     name = workspace_root.name
@@ -23,6 +38,15 @@ def test_ensure_scaffold_creates_pyo3_files(migration_layout: MigrationLayout) -
     cargo = (migration_layout.rust_root / "Cargo.toml").read_text(encoding="utf-8")
     assert 'crate-type = ["cdylib"]' in cargo
     assert "pyo3" in cargo
+
+
+def test_ensure_scaffold_mypy_ini_uses_absolute_source_path(
+    workspace_root: Path,
+) -> None:
+    layout = MigrationLayout.from_source_project(workspace_root)
+    layout.ensure_scaffold()
+    mypy_ini = (layout.py_tests_root / "mypy.ini").read_text(encoding="utf-8")
+    assert f"mypy_path = {workspace_root.resolve()}" in mypy_ini
 
 
 def test_resolve_read_source(workspace_root: Path) -> None:

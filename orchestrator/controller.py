@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from executor_mcp.paths import WORKSPACE_ROOT_ENV
+from executor_mcp.venv_context import SOURCE_VENV_ENV
 from llm.errors import LLMConfigurationError
 from llm.openai_client import OpenAIClient
 from llm.types import LLMClient
@@ -72,7 +73,10 @@ class OrchestratorController:
         self._pause.set()
         self._llm = llm
         self._provider_id = provider_id
-        self._layout = layout or MigrationLayout.from_source_project(state.workspace)
+        self._layout = layout or MigrationLayout.from_source_project(
+            state.workspace,
+            source_venv=state.source_venv,
+        )
         self._executor = MigrationExecutor(self._layout)
         self._runner = step_runner or StepRunner(
             state,
@@ -106,7 +110,10 @@ class OrchestratorController:
 
     def detect_progress(self) -> ProgressSnapshot:
         """Detect migration step from checkpoint or filesystem artifacts."""
-        self._layout = MigrationLayout.from_source_project(self.state.workspace)
+        self._layout = MigrationLayout.from_source_project(
+            self.state.workspace,
+            source_venv=self.state.source_venv,
+        )
         return detect_migration_progress(self._layout)
 
     def _persist_checkpoint(self) -> None:
@@ -124,7 +131,10 @@ class OrchestratorController:
         await self.ensure_llm_ready()
         if workspace is not None:
             self.state.workspace = workspace
-        self._layout = MigrationLayout.from_source_project(self.state.workspace)
+        self._layout = MigrationLayout.from_source_project(
+            self.state.workspace,
+            source_venv=self.state.source_venv,
+        )
         self._layout.ensure_scaffold()
         self.state.layout = self._layout
         self._executor = MigrationExecutor(self._layout)
@@ -139,6 +149,10 @@ class OrchestratorController:
         if isinstance(self._llm, OpenAIClient):
             self._llm._executor = self._executor
         os.environ[WORKSPACE_ROOT_ENV] = str(self._layout.source_root)
+        if self._layout.source_venv is not None:
+            os.environ[SOURCE_VENV_ENV] = str(self._layout.source_venv.root)
+        else:
+            os.environ.pop(SOURCE_VENV_ENV, None)
 
     async def start_migration(
         self,
@@ -175,6 +189,8 @@ class OrchestratorController:
         self.state.append_log(
             f"Migration started fresh — source (read-only): {self._layout.source_root}"
         )
+        if self._layout.source_venv is not None:
+            self.state.append_log(f"Source venv: {self._layout.source_venv.root}")
         self.state.append_log(f"Python tests: {self._layout.py_tests_root}")
         self.state.append_log(f"Rust code: {self._layout.rust_root}")
         if self.state.llm_display:
@@ -200,6 +216,8 @@ class OrchestratorController:
             f"Resuming migration at: {progress.display_label()}"
         )
         self.state.append_log(f"Source (read-only): {self._layout.source_root}")
+        if self._layout.source_venv is not None:
+            self.state.append_log(f"Source venv: {self._layout.source_venv.root}")
         if self.state.llm_display:
             self.state.append_log(f"LLM: {self.state.llm_display}")
         self._persist_checkpoint()

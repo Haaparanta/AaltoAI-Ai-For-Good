@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from executor_mcp.api_signatures import API_SIGNATURES_DIR, detect_import_targets
+from executor_mcp.venv_context import VenvContext, resolve_source_venv
 
 PREFIX_SOURCE = "source"
 PREFIX_PY_TESTS = "py_tests"
@@ -78,16 +79,23 @@ class MigrationLayout:
     source_root: Path
     py_tests_root: Path
     rust_root: Path
+    source_venv: VenvContext | None = None
 
     @classmethod
-    def from_source_project(cls, source_project: Path | str) -> MigrationLayout:
+    def from_source_project(
+        cls,
+        source_project: Path | str,
+        source_venv: Path | str | None = None,
+    ) -> MigrationLayout:
         source = Path(source_project).expanduser().resolve()
         parent = source.parent
         name = source.name
+        venv_ctx = resolve_source_venv(source_venv) if source_venv else None
         return cls(
             source_root=source,
             py_tests_root=parent / f"{name}_migration_py_tests",
             rust_root=parent / f"{name}_migration_rust",
+            source_venv=venv_ctx,
         )
 
     def ensure_scaffold(self) -> None:
@@ -136,19 +144,23 @@ class MigrationLayout:
 
         mypy_path = self.py_tests_root / "mypy.ini"
         if not mypy_path.is_file():
-            source_name = self.source_root.name
             mypy_path.write_text(
                 "[mypy]\n"
                 "python_version = 3.10\n"
-                f"mypy_path = ../{source_name}\n"
+                f"mypy_path = {self.source_root.resolve()}\n"
                 "namespace_packages = True\n"
                 "ignore_missing_imports = False\n",
                 encoding="utf-8",
             )
 
     def describe_paths(self) -> str:
+        if self.source_venv is not None:
+            venv_line = f"Source venv: {self.source_venv.root}"
+        else:
+            venv_line = "Source venv: (not configured)"
         return (
             f"Source (read-only): {self.source_root}\n"
+            f"{venv_line}\n"
             f"Python tests: {self.py_tests_root}\n"
             f"Rust code (PyO3): {self.rust_root}\n"
             f"Benchmarks: {self.measurements_root}"

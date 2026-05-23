@@ -41,6 +41,7 @@ class OrchestratorState:
     awaiting_human: bool = False
     review: ReviewContext | None = None
     workspace: str = "."
+    source_venv: str | None = None
     layout: MigrationLayout | None = None
     llm_display: str = ""
     running: bool = False
