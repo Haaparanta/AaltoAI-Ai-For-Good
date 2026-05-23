@@ -19,6 +19,8 @@ from benchmark.report import (
     TIER_DISPLAY,
     TIER_ORDER,
     _apply_style,
+    maybe_log_scale,
+    value_spread_ratio,
     write_graphs,
 )
 
@@ -28,6 +30,7 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
+    from matplotlib.colors import LogNorm
 except ImportError as exc:
     raise SystemExit(
         "matplotlib is required. Run from the project environment:\n"
@@ -204,7 +207,16 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
 
     fig, ax = plt.subplots(figsize=(8, max(4, len(projects) * 0.55 + 1.5)))
     masked = np.ma.masked_invalid(heatmap)
-    image = ax.imshow(masked, aspect="auto", cmap="RdYlGn", vmin=0.5, vmax=2.0)
+    valid = heatmap[~np.isnan(heatmap) & (heatmap > 0)]
+    if len(valid) >= 2 and value_spread_ratio(valid.tolist()) > 100:
+        image = ax.imshow(
+            masked,
+            aspect="auto",
+            cmap="RdYlGn",
+            norm=LogNorm(vmin=valid.min(), vmax=valid.max()),
+        )
+    else:
+        image = ax.imshow(masked, aspect="auto", cmap="RdYlGn", vmin=0.5, vmax=2.0)
     ax.set_xticks(range(len(TIER_ORDER)))
     ax.set_xticklabels(TIER_DISPLAY)
     ax.set_yticks(range(len(projects)))
@@ -239,6 +251,8 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
     x = np.arange(len(projects))
     group_width = 0.75
     bar_width = group_width / len(TIER_ORDER)
+    all_ratios: list[float] = []
+    bar_labels: list[tuple[object, float]] = []
 
     for tier_idx, tier in enumerate(TIER_ORDER):
         ratios = [_speedup(project.summary, tier) for project in projects]
@@ -254,15 +268,21 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
             if ratio is None:
                 bar.set_visible(False)
                 continue
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.03,
-                f"{ratio:.2f}×",
-                ha="center",
-                va="bottom",
-                fontsize=7,
-                rotation=90,
-            )
+            all_ratios.append(ratio)
+            bar_labels.append((bar, ratio))
+
+    log_y = maybe_log_scale(ax, all_ratios)
+    for bar, ratio in bar_labels:
+        label_y = bar.get_height() * 1.08 if log_y else bar.get_height() + 0.03
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            label_y,
+            f"{ratio:.2f}×",
+            ha="center",
+            va="bottom",
+            fontsize=7,
+            rotation=90,
+        )
 
     ax.axhline(1.0, color="#666666", linestyle="--", linewidth=1.2)
     ax.set_xticks(x)
@@ -271,7 +291,8 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
     ax.set_title("Rust speedup across projects by input size")
     ax.legend(title="Tier", fontsize=9)
     ax.grid(True, axis="y")
-    ax.set_ylim(bottom=0)
+    if not log_y:
+        ax.set_ylim(bottom=0)
     written.append(_save_figure(fig, output_dir / "speedup_by_project.png"))
 
     # --- Latency at large tier: Python vs Rust per project ---
@@ -298,10 +319,7 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
     ax.set_title(f"Mean latency at '{tier}' input size across projects")
     ax.legend()
     ax.grid(True, axis="y")
-    if py_ms and rust_ms:
-        positive = [value for value in py_ms + rust_ms if not math.isnan(value) and value > 0]
-        if positive and max(positive) / min(positive) > 20:
-            ax.set_yscale("log")
+    maybe_log_scale(ax, py_ms + rust_ms)
     written.append(_save_figure(fig, output_dir / "latency_large_tier.png"))
 
     # --- Latency trends: one subplot per project ---
@@ -312,11 +330,15 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
 
     for idx, project in enumerate(projects):
         ax = axes[idx // cols][idx % cols]
+        subplot_values: list[float] = []
         for backend in ("python", "rust"):
             means = []
             for tier in TIER_ORDER:
                 row = _lookup_tier(project.summary, tier, backend)
-                means.append(row.mean_seconds * 1000 if row else float("nan"))
+                value = row.mean_seconds * 1000 if row else float("nan")
+                means.append(value)
+                if row is not None:
+                    subplot_values.append(value)
             ax.plot(
                 tier_x,
                 means,
@@ -331,6 +353,7 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
         ax.set_xticklabels(TIER_DISPLAY, fontsize=8)
         ax.set_ylabel("Latency (ms)")
         ax.grid(True, axis="y")
+        maybe_log_scale(ax, subplot_values)
         if idx == 0:
             ax.legend(fontsize=8)
 
@@ -352,8 +375,10 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
             ("Rust wheel", lambda a: a.rust_wheel_bytes, BACKEND_COLORS["rust"]),
             ("Rust native ext.", lambda a: a.rust_native_extension_bytes, "#984ea3"),
         ]
+        artifact_values: list[float] = []
         for offset_idx, (label, getter, color) in enumerate(series):
             values = [getter(project.artifacts) / 1024 for project in projects_with_artifacts]  # type: ignore[arg-type]
+            artifact_values.extend(values)
             positions = x - width + offset_idx * width
             ax.bar(positions, values, width * 0.9, label=label, color=color)
 
@@ -366,6 +391,7 @@ def write_combined_graphs(output_dir: Path, projects: list[ProjectData]) -> list
         ax.set_title("Distribution artifact sizes across projects")
         ax.legend(fontsize=9)
         ax.grid(True, axis="y")
+        maybe_log_scale(ax, artifact_values)
         written.append(_save_figure(fig, output_dir / "artifact_sizes_by_project.png"))
 
     # --- Peak RSS at large tier ---

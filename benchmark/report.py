@@ -28,6 +28,39 @@ TIER_ORDER = ["small", "medium", "large", "xlarge"]
 TIER_DISPLAY = ["small", "medium", "large", "xlarge"]
 BACKEND_COLORS = {"python": "#377eb8", "rust": "#ff7f0e"}
 BACKEND_LABELS = {"python": "Python (wheel)", "rust": "Rust (wheel)"}
+LOG_SCALE_RATIO_THRESHOLD = 100
+
+
+def _positive_finite(values: list[float] | tuple[float, ...]) -> list[float]:
+    result: list[float] = []
+    for value in values:
+        if value is None or math.isnan(value) or math.isinf(value) or value <= 0:
+            continue
+        result.append(float(value))
+    return result
+
+
+def value_spread_ratio(values: list[float] | tuple[float, ...]) -> float:
+    positive = _positive_finite(values)
+    if len(positive) < 2:
+        return 1.0
+    return max(positive) / min(positive)
+
+
+def maybe_log_scale(
+    ax: plt.Axes,
+    values: list[float] | tuple[float, ...],
+    *,
+    axis: str = "y",
+    threshold: float = LOG_SCALE_RATIO_THRESHOLD,
+) -> bool:
+    if value_spread_ratio(values) <= threshold:
+        return False
+    if axis == "y":
+        ax.set_yscale("log")
+    else:
+        ax.set_xscale("log")
+    return True
 
 
 def _base_benchmark(name: str) -> str:
@@ -297,8 +330,7 @@ def write_graphs(
     ax.set_xlim(-0.25, len(TIER_ORDER) - 0.75)
     ax.grid(True, axis="y")
     ax.legend(fontsize=9, loc="upper left")
-    if all_means_ms and max(all_means_ms) / max(min(all_means_ms), 1e-9) > 20:
-        ax.set_yscale("log")
+    maybe_log_scale(ax, all_means_ms)
 
     written.append(_save_figure(fig, graphs_dir / "latency_vs_input_size.png"))
 
@@ -361,6 +393,8 @@ def write_graphs(
     ax.set_xlabel("Input size")
     ax.set_ylabel("Latency (ms)")
     ax.grid(True, axis="y")
+    flat_times = [time for group in box_data for time in group]
+    maybe_log_scale(ax, flat_times)
 
     legend_handles = [
         Patch(facecolor=BACKEND_COLORS["python"], alpha=0.65, label=BACKEND_LABELS["python"]),
@@ -435,6 +469,7 @@ def write_graphs(
     ax.set_xlabel("Size (KiB)")
     ax.set_title("Distribution artifact sizes")
     ax.grid(True, axis="x")
+    maybe_log_scale(ax, [s / 1024 for s in sizes], axis="x")
     for bar, size in zip(bars, sizes):
         ax.text(
             bar.get_width() + max(s / 1024 for s in sizes) * 0.02,
@@ -447,6 +482,7 @@ def write_graphs(
 
     # --- Speedup ratio ---
     fig, ax = plt.subplots(figsize=(10, 5))
+    all_ratios: list[float] = []
     for base in base_benchmarks:
         ratios: list[float] = []
         for tier in TIER_ORDER:
@@ -455,7 +491,9 @@ def write_graphs(
             if py_row is None or rust_row is None or rust_row.mean_seconds == 0:
                 ratios.append(float("nan"))
             else:
-                ratios.append(py_row.mean_seconds / rust_row.mean_seconds)
+                ratio = py_row.mean_seconds / rust_row.mean_seconds
+                ratios.append(ratio)
+                all_ratios.append(ratio)
         if any(not math.isnan(r) for r in ratios):
             ax.plot(
                 tier_x,
@@ -474,6 +512,7 @@ def write_graphs(
     ax.set_title("Rust speedup (>1 means Rust is faster)")
     ax.legend(fontsize=9, loc="best")
     ax.grid(True)
+    maybe_log_scale(ax, all_ratios)
     written.append(_save_figure(fig, graphs_dir / "speedup_ratio.png"))
 
     return written
