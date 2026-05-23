@@ -35,3 +35,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: live OpenAI API tests (require OPENAI_API_KEY)",
+    "cursor_bridge: live Cursor bridge tests (require npx cursor-api-proxy)",
+]
