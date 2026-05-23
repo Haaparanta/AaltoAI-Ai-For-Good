@@ -1,0 +1,23 @@
+{
+  "project": "python-qrcode",
+  "generated_at": "2026-05-23T13:35:25.739533+00:00",
+  "config": {
+    "iterations": 10,
+    "warmup": 5,
+    "quick": true,
+    "python_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/python-qrcode_measurements/.python_build/wheels/qrcode-8.2-py3-none-any.whl",
+    "rust_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/python-qrcode_migration_rust/target/wheels/qrcode-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+  },
+  "artifacts": {
+    "python_source_bytes": 128076,
+    "python_wheel_bytes": 54575,
+    "python_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/python-qrcode_measurements/.python_build/wheels/qrcode-8.2-py3-none-any.whl",
+    "python_build_seconds": 0.5585895839612931,
+    "rust_wheel_bytes": 290574,
+    "rust_native_extension_bytes": 752144,
+    "rust_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/python-qrcode_migration_rust/target/wheels/qrcode-0.1.0-cp312-cp312-macosx_11_0_arm64.whl",
+    "rust_build_seconds": 0.0
+  },
+  "case_count": 4,
+  "sample_count": 80
+}

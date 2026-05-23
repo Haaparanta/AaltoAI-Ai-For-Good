@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_root": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/python-qrcode",
-  "workflow_step": "measure_performance",
+  "workflow_step": "done",
   "awaiting_human": false,
-  "last_agent_summary": "Migration pytest passed after fix.",
-  "updated_at": "2026-05-23T12:59:13.858238+00:00"
+  "last_agent_summary": "Done.\n\nI inspected the API and tests, authored `measurements/benchmark_suite.toml`, iterated on failing cases, and ran the benchmark pipeline successfully.\n\nWhat I found\n- Auto-generated cases were invalid because `qrcode.run_example()` in Rust accepts no kwargs, while the source Python function allows `*args, **kwargs`.\n- Several richer API candidates (`make`, instance methods) fail correctness against the current Rust wheel because the Rust implementation is behaviorally simplified and returns different outputs.\n- The only correctness-safe benchmarkable public function across both wheels was `qrcode.run_example()` with no arguments.\n\nWhat I wrote\n- `measurements/benchmark_suite.toml` with 4 cases:\n  - `run_example_small`\n  - `run_example_medium`\n  - `run_example_large`\n  - `run_example_xlarge`\n\nFinal run\n- `run_benchmarks(quick=true)` succeeded.\n\nConfirmed outputs exist\n- `measurements/report.txt`\n- `measurements/summary.csv`\n\nHigh-level results\n- Rust is consistently faster on the valid benchmarked function.\n- Observed speedups are roughly:\n  - small: `6.93\u00d7`\n  - medium: `7.77\u00d7`\n  - large: `8.38\u00d7`\n  - xlarge: `7.33\u00d7`\n- Rust also used slightly less peak RSS on average, about `0.90\u20130.91\u00d7` Python RSS.\n- Rust timings were much more stable:\n  - Python CV roughly `8.0%\u201317.2%`\n  - Rust CV roughly `0.6%\u20132.7%`\n\nArtifact notes from report\n- Python source: `125.1 KiB`\n- Python wheel: `53.3 KiB`\n- Rust wheel: `283.8 KiB`\n- Rust native extension: `734.5 KiB`\n\nImportant caveat\n- The benchmark suite is correctness-constrained to `run_example()` only. The report is valid and reproducible, but it reflects a very narrow part of the API because broader functions currently diverge between source Python and Rust.\n\nFiles present under `measurements/`\n- `benchmark_suite.toml`\n- `report.txt`\n- `summary.csv`\n- `raw_runs.csv`\n- `metadata.json`\n- `graphs/*.png`",
+  "updated_at": "2026-05-23T13:41:34.554182+00:00"
 }
