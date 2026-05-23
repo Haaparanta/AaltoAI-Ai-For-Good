@@ -1,0 +1,23 @@
+Performance report: caesar_cipher
+Generated: 2026-05-23T11:54:30.225470+00:00
+
+Both backends run from installed wheels (Python source wheel vs Rust PyO3 wheel).
+
+Artifacts: Python source 746 B; Python wheel 1.5 KiB (0.68s build); Rust wheel 198.0 KiB (0.00s build); Rust native extension 471.3 KiB.
+
+cipher_large (small): Python leads with 0.13× speedup (Python 0.11ms vs Rust 0.82ms). Timing CV Python 19.3% vs Rust 25.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_large (medium): Python leads with 0.22× speedup (Python 0.17ms vs Rust 0.81ms). Timing CV Python 32.2% vs Rust 20.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_large (large): Python leads with 0.43× speedup (Python 0.35ms vs Rust 0.80ms). Timing CV Python 5.6% vs Rust 8.4%. Mean peak RSS ratio Rust/Python: 1.02×.
+cipher_large (xlarge): Rust leads with 1.63× speedup (Python 1.38ms vs Rust 0.85ms). Timing CV Python 8.8% vs Rust 12.4%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_medium (small): Python leads with 0.13× speedup (Python 0.11ms vs Rust 0.82ms). Timing CV Python 19.3% vs Rust 25.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_medium (medium): Python leads with 0.22× speedup (Python 0.17ms vs Rust 0.81ms). Timing CV Python 32.2% vs Rust 20.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_medium (large): Python leads with 0.43× speedup (Python 0.35ms vs Rust 0.80ms). Timing CV Python 5.6% vs Rust 8.4%. Mean peak RSS ratio Rust/Python: 1.02×.
+cipher_medium (xlarge): Rust leads with 1.63× speedup (Python 1.38ms vs Rust 0.85ms). Timing CV Python 8.8% vs Rust 12.4%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_small (small): Python leads with 0.13× speedup (Python 0.11ms vs Rust 0.82ms). Timing CV Python 19.3% vs Rust 25.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_small (medium): Python leads with 0.22× speedup (Python 0.17ms vs Rust 0.81ms). Timing CV Python 32.2% vs Rust 20.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_small (large): Python leads with 0.43× speedup (Python 0.35ms vs Rust 0.80ms). Timing CV Python 5.6% vs Rust 8.4%. Mean peak RSS ratio Rust/Python: 1.02×.
+cipher_small (xlarge): Rust leads with 1.63× speedup (Python 1.38ms vs Rust 0.85ms). Timing CV Python 8.8% vs Rust 12.4%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_xlarge (small): Python leads with 0.13× speedup (Python 0.11ms vs Rust 0.82ms). Timing CV Python 19.3% vs Rust 25.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_xlarge (medium): Python leads with 0.22× speedup (Python 0.17ms vs Rust 0.81ms). Timing CV Python 32.2% vs Rust 20.8%. Mean peak RSS ratio Rust/Python: 1.01×.
+cipher_xlarge (large): Python leads with 0.43× speedup (Python 0.35ms vs Rust 0.80ms). Timing CV Python 5.6% vs Rust 8.4%. Mean peak RSS ratio Rust/Python: 1.02×.
+cipher_xlarge (xlarge): Rust leads with 1.63× speedup (Python 1.38ms vs Rust 0.85ms). Timing CV Python 8.8% vs Rust 12.4%. Mean peak RSS ratio Rust/Python: 1.01×.

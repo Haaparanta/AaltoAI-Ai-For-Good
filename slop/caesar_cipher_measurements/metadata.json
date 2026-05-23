@@ -1,0 +1,23 @@
+{
+  "project": "caesar_cipher",
+  "generated_at": "2026-05-23T11:54:30.668364+00:00",
+  "config": {
+    "iterations": 100,
+    "warmup": 5,
+    "quick": false,
+    "python_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/caesar_cipher_measurements/.python_build/wheels/caesar_cipher_python_bench-0.1.0-py3-none-any.whl",
+    "rust_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/caesar_cipher_migration_rust/target/wheels/main-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+  },
+  "artifacts": {
+    "python_source_bytes": 746,
+    "python_wheel_bytes": 1574,
+    "python_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/caesar_cipher_measurements/.python_build/wheels/caesar_cipher_python_bench-0.1.0-py3-none-any.whl",
+    "python_build_seconds": 0.6777325000148267,
+    "rust_wheel_bytes": 202704,
+    "rust_native_extension_bytes": 482656,
+    "rust_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/caesar_cipher_migration_rust/target/wheels/main-0.1.0-cp312-cp312-macosx_11_0_arm64.whl",
+    "rust_build_seconds": 0.0
+  },
+  "case_count": 4,
+  "sample_count": 800
+}
