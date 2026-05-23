@@ -1,0 +1,7 @@
+[package]
+name = "migrated-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+migrated = { path = "../sample_project_migration_rust" }

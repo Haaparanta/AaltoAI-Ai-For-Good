@@ -11,13 +11,13 @@ from uuid import uuid4
 from agents import get_system_prompt
 from agents.registry import can_run_parallel, get_spec
 from llm.types import LLMClient
+from orchestrator.config import max_agent_concurrency
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.models import AgentId, AgentStatus, RunKind, WorkflowStep
 from orchestrator.state import OrchestratorState
+from orchestrator.write_context import current_run_id
 
 StateNotify = Callable[[], Awaitable[None] | None]
-
-DEFAULT_MAX_CONCURRENCY = 4
 
 
 @dataclass
@@ -55,13 +55,17 @@ class AgentPool:
         llm: LLMClient,
         *,
         on_notify: StateNotify | None = None,
-        max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
+        max_concurrency: int | None = None,
     ) -> None:
         self.state = state
         self._executor = executor
         self._llm = llm
         self._on_notify = on_notify
-        self._sem = asyncio.Semaphore(max_concurrency)
+        limit = max_concurrency if max_concurrency is not None else max_agent_concurrency()
+        self.max_concurrency = limit
+        self._sem = asyncio.Semaphore(limit)
+        self._cancelled_runs: set[str] = set()
+        self._cancelled_groups: set[str] = set()
 
     async def _notify(self) -> None:
         if self._on_notify is None:
@@ -69,6 +73,40 @@ class AgentPool:
         result = self._on_notify()
         if result is not None:
             await result
+
+    async def run_batch_with_retry(
+        self,
+        specs: list[AgentRunSpec],
+        *,
+        step: WorkflowStep,
+        parallel: bool = False,
+        retry_failed: bool = True,
+    ) -> list[AgentRunResult]:
+        results = await self.run_batch(specs, step=step, parallel=parallel)
+        if not retry_failed:
+            return results
+        failed_specs = [
+            spec for spec, result in zip(specs, results) if not result.success
+        ]
+        if not failed_specs:
+            return results
+        retry_results = await self.run_batch(
+            failed_specs,
+            step=step,
+            parallel=parallel and len(failed_specs) > 1,
+        )
+        retry_by_key = {
+            (spec.agent_key, spec.scope): result
+            for spec, result in zip(failed_specs, retry_results)
+        }
+        merged: list[AgentRunResult] = []
+        for spec, result in zip(specs, results):
+            if result.success:
+                merged.append(result)
+                continue
+            replacement = retry_by_key.get((spec.agent_key, spec.scope))
+            merged.append(replacement if replacement is not None else result)
+        return merged
 
     async def run_batch(
         self,
@@ -78,6 +116,7 @@ class AgentPool:
         group_label: str = "",
         parallel: bool = False,
     ) -> list[AgentRunResult]:
+        del group_label
         if not specs:
             return []
         if len(specs) == 1 or not parallel:
@@ -105,12 +144,20 @@ class AgentPool:
         return [task.result() for task in tasks]
 
     async def run_one(self, spec: AgentRunSpec, *, step: WorkflowStep) -> AgentRunResult:
+        if spec.group_id and spec.group_id in self._cancelled_groups:
+            return AgentRunResult(
+                run_id="",
+                agent_key=spec.agent_key,
+                success=False,
+                error="Batch cancelled",
+            )
+
         agent_key = spec.agent_key
         spec_obj = get_spec(agent_key)
         role = AgentId.from_key(agent_key)
         label = spec.label or spec_obj.display_name
-        if spec.scope:
-            label = f"{label} · {spec.scope}"
+        if spec.scope and spec.scope not in label:
+            label = f"{label} · {spec.scope}" if label else spec.scope
 
         run = self.state.start_run(
             role=role,
@@ -122,13 +169,40 @@ class AgentPool:
         )
         await self._notify()
 
-        async with self._sem:
-            result = await self._execute_run(
-                run.run_id,
+        if run.run_id in self._cancelled_runs:
+            self.state.finish_run(run.run_id, AgentStatus.ERROR, detail="Cancelled")
+            await self._notify()
+            return AgentRunResult(
+                run_id=run.run_id,
                 agent_key=agent_key,
-                user_message=spec.user_message,
-                fix_test_output=spec.fix_test_output,
+                success=False,
+                error="Cancelled",
             )
+
+        token = current_run_id.set(run.run_id)
+        try:
+            async with self._sem:
+                if run.run_id in self._cancelled_runs or (
+                    spec.group_id and spec.group_id in self._cancelled_groups
+                ):
+                    self.state.finish_run(
+                        run.run_id, AgentStatus.ERROR, detail="Cancelled"
+                    )
+                    await self._notify()
+                    return AgentRunResult(
+                        run_id=run.run_id,
+                        agent_key=agent_key,
+                        success=False,
+                        error="Cancelled",
+                    )
+                result = await self._execute_run(
+                    run.run_id,
+                    agent_key=agent_key,
+                    user_message=spec.user_message,
+                    fix_test_output=spec.fix_test_output,
+                )
+        finally:
+            current_run_id.reset(token)
 
         if result.success:
             self.state.finish_run(run.run_id, AgentStatus.COMPLETED, detail="Done")
@@ -199,6 +273,63 @@ class AgentPool:
             error=turn.error,
             artifacts=list(turn.artifacts),
         )
+
+    def cancel_run(self, run_id: str) -> bool:
+        """Mark a run cancelled."""
+        run = self.state.runs.get(run_id)
+        if run is None:
+            return False
+        self._cancelled_runs.add(run_id)
+        if run.status in (AgentStatus.RUNNING, AgentStatus.WAITING):
+            self.state.finish_run(run_id, AgentStatus.ERROR, detail="Cancelled")
+        return True
+
+    def cancel_group(self, group_id: str) -> int:
+        """Cancel all runs in a batch group."""
+        self._cancelled_groups.add(group_id)
+        count = 0
+        for run_id, run in list(self.state.runs.items()):
+            if run.group_id == group_id and run.status in (
+                AgentStatus.RUNNING,
+                AgentStatus.WAITING,
+            ):
+                if self.cancel_run(run_id):
+                    count += 1
+        return count
+
+    def cancel_all_active(self) -> int:
+        """Cancel every running or waiting agent run."""
+        count = 0
+        for run_id, run in list(self.state.runs.items()):
+            if run.status in (AgentStatus.RUNNING, AgentStatus.WAITING):
+                if self.cancel_run(run_id):
+                    count += 1
+        return count
+
+    async def on_write_lock_wait(self, path: str) -> None:
+        run_id = current_run_id.get()
+        if run_id is None:
+            return
+        self.state.update_run(
+            run_id,
+            status=AgentStatus.WAITING,
+            detail=f"blocked on {path}",
+        )
+        await self._notify()
+
+    async def on_write_lock_acquired(self, path: str) -> None:
+        run_id = current_run_id.get()
+        if run_id is None:
+            return
+        run = self.state.runs.get(run_id)
+        if run is None or run.status != AgentStatus.WAITING:
+            return
+        self.state.update_run(
+            run_id,
+            status=AgentStatus.RUNNING,
+            detail=f"writing {path}",
+        )
+        await self._notify()
 
 
 def _agent_pairs(specs: list[AgentRunSpec]) -> list[tuple[AgentRunSpec, AgentRunSpec]]:

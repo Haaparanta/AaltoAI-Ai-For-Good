@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from agents.registry import get_spec
 from agents.runner import (
+    AgentStage,
     agent_stages_for_step,
     build_user_message,
     fix_agents_for_lint_output,
@@ -20,10 +21,12 @@ from executor_mcp.python_test_quality import lint_tree, tree_lint_output
 from executor_mcp.rust_wheel import build_and_install_wheel
 from llm.types import LLMClient
 from orchestrator.agent_pool import AgentPool, AgentRunSpec
+from orchestrator.config import max_agent_concurrency
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST
-from orchestrator.models import AgentId, AgentStatus, RunKind, WorkflowStep
+from orchestrator.models import AgentId, AgentStatus, ParallelPolicy, RunKind, WorkflowStep
 from orchestrator.state import OrchestratorState
+from orchestrator.work_splitter import WorkShard, shards_for_agent
 
 StateNotify = Callable[[], Awaitable[None] | None]
 
@@ -48,14 +51,25 @@ class StepRunner:
         *,
         on_notify: StateNotify | None = None,
         pool: AgentPool | None = None,
+        provider_id: str | None = None,
     ) -> None:
         self.state = state
         self._executor = executor
         self._llm = llm
         self._on_notify = on_notify
+        concurrency = max_agent_concurrency(provider_id)
+        self.state.max_concurrency = concurrency
         self._pool = pool or AgentPool(
-            state, executor, llm, on_notify=on_notify
+            state,
+            executor,
+            llm,
+            on_notify=on_notify,
+            max_concurrency=concurrency,
         )
+        if executor._on_lock_wait is None:
+            executor._on_lock_wait = self._pool.on_write_lock_wait
+        if executor._on_lock_acquired is None:
+            executor._on_lock_acquired = self._pool.on_write_lock_acquired
 
     async def _notify(self) -> None:
         if self._on_notify is None:
@@ -85,27 +99,17 @@ class StepRunner:
         feedback = self.state.last_user_feedback
         summaries: list[str] = []
         stage_index = 0
+        layout = self._layout()
 
         for stage in agent_stages_for_step(step):
-            specs: list[AgentRunSpec] = []
-            for agent_index, agent_key in enumerate(stage.agents):
-                user_message = build_user_message(
-                    step,
-                    layout=self._layout(),
-                    agent_id=agent_key,
-                    feedback=feedback if stage_index == 0 and agent_index == 0 else "",
-                )
-                specs.append(
-                    AgentRunSpec(
-                        agent_key=agent_key,
-                        user_message=user_message,
-                        label=get_spec(agent_key).display_name,
-                        kind=RunKind.WORK,
-                    )
-                )
-
-            parallel = len(specs) > 1
-            results = await self._pool.run_batch(
+            specs = self._specs_for_stage(
+                stage,
+                step=step,
+                layout=layout,
+                feedback=feedback if stage_index == 0 else "",
+            )
+            parallel = len(specs) > 1 and stage.policy == ParallelPolicy.FAN_OUT
+            results = await self._pool.run_batch_with_retry(
                 specs,
                 step=step,
                 parallel=parallel,
@@ -122,6 +126,70 @@ class StepRunner:
 
         self.state.last_agent_summary = " ".join(summaries)
         return StepRunResult(success=True, summary=self.state.last_agent_summary)
+
+    def _specs_for_stage(
+        self,
+        stage: AgentStage,
+        *,
+        step: WorkflowStep,
+        layout: MigrationLayout,
+        feedback: str,
+    ) -> list[AgentRunSpec]:
+        if len(stage.agents) != 1 or stage.policy != ParallelPolicy.FAN_OUT:
+            specs: list[AgentRunSpec] = []
+            for agent_index, agent_key in enumerate(stage.agents):
+                specs.append(
+                    self._spec_from_shard(
+                        WorkShard(
+                            agent_key=agent_key,
+                            scope="",
+                            label=get_spec(agent_key).display_name,
+                        ),
+                        step=step,
+                        layout=layout,
+                        feedback=feedback if agent_index == 0 else "",
+                    )
+                )
+            return specs
+
+        agent_key = stage.agents[0]
+        shards = shards_for_agent(agent_key, layout=layout)
+        return [
+            self._spec_from_shard(
+                shard,
+                step=step,
+                layout=layout,
+                feedback=feedback if index == 0 else "",
+            )
+            for index, shard in enumerate(shards)
+        ]
+
+    def _spec_from_shard(
+        self,
+        shard: WorkShard,
+        *,
+        step: WorkflowStep,
+        layout: MigrationLayout,
+        feedback: str,
+    ) -> AgentRunSpec:
+        user_message = build_user_message(
+            step,
+            layout=layout,
+            agent_id=shard.agent_key,
+            feedback=feedback,
+            scope=shard.scope,
+        )
+        return AgentRunSpec(
+            agent_key=shard.agent_key,
+            user_message=user_message,
+            label=shard.label,
+            kind=RunKind.WORK,
+            scope=shard.scope,
+        )
+
+    @property
+    def pool(self) -> AgentPool:
+        return self._pool
 
     def _layout(self) -> MigrationLayout:
         if self.state.layout is not None:

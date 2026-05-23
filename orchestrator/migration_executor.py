@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -25,11 +27,26 @@ def _is_py_tests_python_path(user_path: str) -> bool:
     return normalized.startswith("py_tests/") and normalized.endswith(".py")
 
 
+LockWaitCallback = Callable[[str], Awaitable[None] | None]
+LockAcquiredCallback = Callable[[str], Awaitable[None] | None]
+
+
 class MigrationExecutor:
     """read_file / write_file / execute_command scoped to migration layout."""
 
-    def __init__(self, layout: MigrationLayout) -> None:
+    def __init__(
+        self,
+        layout: MigrationLayout,
+        *,
+        on_lock_wait: LockWaitCallback | None = None,
+        on_lock_acquired: LockAcquiredCallback | None = None,
+    ) -> None:
         self.layout = layout
+        self._on_lock_wait = on_lock_wait
+        self._on_lock_acquired = on_lock_acquired
+        self._path_locks: dict[str, asyncio.Lock] = {}
+        self._write_waiters: dict[str, int] = {}
+        self._waiter_reg_locks: dict[str, asyncio.Lock] = {}
 
     @staticmethod
     def tool_schemas() -> list[dict[str, Any]]:
@@ -196,7 +213,12 @@ class MigrationExecutor:
                 )
                 return json.dumps({"ok": True, "content": result})
             if name == "write_file":
-                return json.dumps(self._write_file(arguments))
+                user_path = arguments["path"]
+                await self._acquire_write_lock(user_path)
+                try:
+                    return json.dumps(self._write_file(arguments))
+                finally:
+                    self._release_write_lock(user_path)
             if name == "execute_command":
                 cwd = self.layout.resolve_command_cwd(arguments.get("cwd"))
                 extra_env = arguments.get("env")
@@ -273,3 +295,35 @@ class MigrationExecutor:
             refresh=arguments.get("refresh", False),
         )
         return {"ok": True, **result_to_dict(result)}
+
+    def _normalize_lock_key(self, user_path: str) -> str:
+        return user_path.strip().replace("\\", "/")
+
+    async def _acquire_write_lock(self, user_path: str) -> None:
+        key = self._normalize_lock_key(user_path)
+        reg_lock = self._waiter_reg_locks.setdefault(key, asyncio.Lock())
+        await reg_lock.acquire()
+        try:
+            lock = self._path_locks.setdefault(key, asyncio.Lock())
+            waiters = self._write_waiters.get(key, 0) + 1
+            self._write_waiters[key] = waiters
+            will_wait = lock.locked() or waiters > 1
+        finally:
+            reg_lock.release()
+        if will_wait and self._on_lock_wait is not None:
+            result = self._on_lock_wait(key)
+            if result is not None:
+                await result
+        await lock.acquire()
+        if self._on_lock_acquired is not None:
+            result = self._on_lock_acquired(key)
+            if result is not None:
+                await result
+
+    def _release_write_lock(self, user_path: str) -> None:
+        key = self._normalize_lock_key(user_path)
+        lock = self._path_locks.get(key)
+        if lock is not None and lock.locked():
+            lock.release()
+        if key in self._write_waiters and self._write_waiters[key] > 0:
+            self._write_waiters[key] -= 1

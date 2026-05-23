@@ -3,10 +3,21 @@ Screen {
 }
 
 #header-bar {
-    height: 4;
+    height: 5;
     padding: 0 1;
     background: $primary-darken-2;
     color: $text;
+}
+
+#concurrency-label {
+    color: $success;
+}
+
+#pipeline-strip {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    border-bottom: solid $primary-darken-1;
 }
 
 #header-bar Static.title {
@@ -31,16 +42,35 @@ Screen {
 }
 
 #agents-panel {
-    height: 12;
+    height: 10;
     border: solid $primary-darken-1;
     padding: 0 1;
 }
 
 #runs-panel {
-    height: 8;
+    height: 7;
     border: solid $primary-darken-1;
     padding: 0 1;
     margin-top: 1;
+}
+
+#run-detail-panel {
+    height: 9;
+    border: solid $primary-darken-1;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#run-detail-panel Static.panel-title {
+    text-style: bold;
+    padding: 1 0;
+    color: $accent;
+}
+
+#run-detail-text,
+#run-mini-log {
+    color: $text-muted;
+    padding-bottom: 1;
 }
 
 #runs-panel Static.panel-title {
@@ -60,8 +90,13 @@ Screen {
     margin-top: 1;
 }
 
+#paths-panel.hidden {
+    display: none;
+}
+
 #agents-panel Static.panel-title,
 #runs-panel Static.panel-title,
+#run-detail-panel Static.panel-title,
 #paths-panel Static.panel-title,
 #content-panel Static.panel-title {
     text-style: bold;

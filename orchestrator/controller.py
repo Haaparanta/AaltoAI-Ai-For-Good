@@ -55,6 +55,7 @@ class OrchestratorController:
         *,
         step_runner: StepRunner | None = None,
         layout: MigrationLayout | None = None,
+        provider_id: str | None = None,
     ) -> None:
         self.state = state
         self._on_change = on_change
@@ -62,6 +63,7 @@ class OrchestratorController:
         self._pause = asyncio.Event()
         self._pause.set()
         self._llm = llm
+        self._provider_id = provider_id
         self._layout = layout or MigrationLayout.from_source_project(state.workspace)
         self._executor = MigrationExecutor(self._layout)
         self._runner = step_runner or StepRunner(
@@ -69,6 +71,7 @@ class OrchestratorController:
             self._executor,
             self._llm,
             on_notify=self._notify,
+            provider_id=provider_id,
         )
         if isinstance(llm, OpenAIClient):
             state.llm_display = llm.display_name()
@@ -95,7 +98,13 @@ class OrchestratorController:
         self._layout.ensure_scaffold()
         self.state.layout = self._layout
         self._executor = MigrationExecutor(self._layout)
-        self._runner._executor = self._executor
+        self._runner = StepRunner(
+            self.state,
+            self._executor,
+            self._llm,
+            on_notify=self._notify,
+            provider_id=self._provider_id,
+        )
         if isinstance(self._llm, OpenAIClient):
             self._llm._executor = self._executor
 
@@ -161,6 +170,10 @@ class OrchestratorController:
     def resume(self) -> None:
         """Continue the workflow after human input or external updates."""
         self._pause.set()
+
+    def cancel_active_runs(self) -> int:
+        """Cancel in-flight agent runs."""
+        return self._runner.pool.cancel_all_active()
 
     async def submit_feedback(self, feedback: str) -> bool:
         if not self.state.awaiting_human:

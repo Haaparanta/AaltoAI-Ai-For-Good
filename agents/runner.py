@@ -10,6 +10,27 @@ from orchestrator.models import ParallelPolicy, WorkflowStep
 _FEEDBACK_PREFIX = "User feedback from the last review (apply these changes):\n"
 
 
+def _message_header(
+    *,
+    feedback: str,
+    scope: str,
+    source: str,
+    paths: str,
+) -> str:
+    feedback_block = ""
+    if feedback.strip():
+        feedback_block = f"{_FEEDBACK_PREFIX}{feedback.strip()}\n\n"
+    scope_block = ""
+    if scope.strip():
+        scope_block = (
+            f"Scope: you own only `{scope}`. Do not modify other files.\n\n"
+        )
+    return (
+        f"{feedback_block}{scope_block}"
+        f"Original project (read-only): {source}\n\n{paths}\n\n"
+    )
+
+
 @dataclass(frozen=True)
 class AgentStage:
     """One execution stage: agents run in parallel when len(agents) > 1."""
@@ -25,25 +46,25 @@ def build_user_message(
     agent_id: str,
     feedback: str = "",
     message_phase: str = "work",
+    scope: str = "",
 ) -> str:
     """Build the user message for the current workflow work step."""
-    feedback_block = ""
-    if feedback.strip():
-        feedback_block = f"{_FEEDBACK_PREFIX}{feedback.strip()}\n\n"
-
     paths = layout.tool_path_guide()
     source = str(layout.source_root)
+    header = _message_header(
+        feedback=feedback, scope=scope, source=source, paths=paths
+    )
 
     if step == WorkflowStep.CREATE_TEST_PY and message_phase == "lint_fix":
         return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
+            f"{header}"
             "Phase: FIX AFTER LINT FAILURE.\n"
             f"flake8 and/or mypy failed on Python tests under `{PREFIX_PY_TESTS}/tests/`. "
             "Fix the test files so all writes pass lint. Run pytest with cwd py_tests when clean."
         )
     if step == WorkflowStep.CREATE_TEST_PY and message_phase == "pytest_fix":
         return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
+            f"{header}"
             "Phase: FIX AFTER PYTEST FAILURE.\n"
             f"pytest failed. Fix Python tests under `{PREFIX_PY_TESTS}/tests/`. "
             "Run pytest with cwd py_tests."
@@ -65,13 +86,10 @@ def build_user_message(
                 "Ensure all Python test writes pass flake8 and mypy (fix lint errors "
                 "returned by write_file). Run pytest with cwd py_tests."
             )
-        return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
-            f"Phase: CREATE TEST (Python).\n{task}"
-        )
+        return f"{header}Phase: CREATE TEST (Python).\n{task}"
     if step == WorkflowStep.TRANSLATE_CODE and message_phase == "clippy_fix":
         return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
+            f"{header}"
             "Phase: FIX AFTER RUST QUALITY CHECK FAILURE.\n"
             f"`cargo fmt --check` and/or `cargo clippy` failed under `{PREFIX_RUST}/`. "
             "Fix formatting, lints, and compile issues in the PyO3 implementation, "
@@ -92,10 +110,7 @@ def build_user_message(
                 f"approved pytest under `{PREFIX_PY_TESTS}/tests/`, and `{PREFIX_SOURCE}/` sources.\n"
                 f"Implement PyO3 bindings so the approved pytest suite passes after wheel install."
             )
-        return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
-            f"Phase: TRANSLATE CODE (Python → PyO3 extension).\n{task}"
-        )
+        return f"{header}Phase: TRANSLATE CODE (Python → PyO3 extension).\n{task}"
     if step == WorkflowStep.RUN_TESTS:
         task = (
             "pytest failed against the installed Rust wheel. Fix the PyO3 "
@@ -103,17 +118,14 @@ def build_user_message(
             f"pytest suite under `{PREFIX_PY_TESTS}/tests/` passes when the wheel "
             "is installed. Do not weaken tests."
         )
-        return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
-            f"Phase: FIX AFTER MIGRATION TEST FAILURE.\n{task}"
-        )
+        return f"{header}Phase: FIX AFTER MIGRATION TEST FAILURE.\n{task}"
     if step in (WorkflowStep.REVIEW_PLAN_PY, WorkflowStep.REVIEW_RUST_CODE):
         focus = {
             WorkflowStep.REVIEW_PLAN_PY: "migration plan and Python baseline tests",
             WorkflowStep.REVIEW_RUST_CODE: "PyO3 implementation vs pytest contract and migration plan",
         }[step]
         return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
+            f"{header}"
             f"Phase: PRE-REVIEW BRIEF for {step.label}.\n"
             f"Read artifacts for {focus} and produce a structured review brief "
             "for the human reviewer. Do not modify any files."
@@ -141,12 +153,12 @@ def agent_stages_for_step(step: WorkflowStep) -> tuple[AgentStage, ...]:
     if step == WorkflowStep.CREATE_TEST_PY:
         return (
             AgentStage(("analyzer",), ParallelPolicy.SEQUENTIAL),
-            AgentStage(("py_tester",), ParallelPolicy.SEQUENTIAL),
+            AgentStage(("py_tester",), ParallelPolicy.FAN_OUT),
         )
     if step == WorkflowStep.TRANSLATE_CODE:
         return (
             AgentStage(("scaffolder",), ParallelPolicy.SEQUENTIAL),
-            AgentStage(("translator",), ParallelPolicy.SEQUENTIAL),
+            AgentStage(("translator",), ParallelPolicy.FAN_OUT),
         )
     raise ValueError(f"No agent stages for workflow step: {step}")
 
