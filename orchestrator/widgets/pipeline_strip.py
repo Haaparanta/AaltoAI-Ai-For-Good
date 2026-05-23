@@ -12,6 +12,7 @@ _PIPELINE_STEPS: tuple[WorkflowStep, ...] = (
     WorkflowStep.TRANSLATE_CODE,
     WorkflowStep.REVIEW_RUST_CODE,
     WorkflowStep.RUN_TESTS,
+    WorkflowStep.MEASURE_PERFORMANCE,
 )
 
 

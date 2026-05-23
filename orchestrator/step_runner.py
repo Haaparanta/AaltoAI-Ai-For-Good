@@ -81,6 +81,8 @@ class StepRunner:
     async def run(self, step: WorkflowStep) -> StepRunResult:
         if step == WorkflowStep.RUN_TESTS:
             return await self._run_migration_tests()
+        if step == WorkflowStep.MEASURE_PERFORMANCE:
+            return await self._run_benchmarks()
         result = await self._run_agents(step)
         if step == WorkflowStep.CREATE_TEST_PY and result.success:
             lint_result = await self._run_python_lint_gate()
@@ -271,6 +273,38 @@ class StepRunner:
         return StepRunResult(
             success=False,
             summary=self.state.last_agent_summary,
+            allow_advance=False,
+        )
+
+    async def _run_benchmarks(self) -> StepRunResult:
+        from benchmark.config import BenchmarkConfig
+        from benchmark.runner import run_benchmarks
+
+        layout = self._layout()
+        self.state.set_agent(
+            AgentId.BENCHMARKER, AgentStatus.RUNNING, detail="benchmarking"
+        )
+        await self._notify()
+        self.state.append_log("Benchmarker: measuring Python vs Rust performance")
+
+        result = run_benchmarks(layout, config=BenchmarkConfig(quick=False))
+
+        if result.success:
+            self.state.set_agent(
+                AgentId.BENCHMARKER, AgentStatus.COMPLETED, detail="Reports written"
+            )
+            self.state.last_agent_summary = result.summary
+            await self._notify()
+            return StepRunResult(success=True, summary=result.summary)
+
+        self.state.set_agent(
+            AgentId.BENCHMARKER, AgentStatus.ERROR, detail="Benchmark failed"
+        )
+        self.state.last_agent_summary = result.summary
+        await self._notify()
+        return StepRunResult(
+            success=False,
+            summary=result.summary,
             allow_advance=False,
         )
 

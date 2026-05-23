@@ -51,7 +51,8 @@ def _pyo3_pyproject_toml(package_name: str) -> str:
     )
 
 
-def _pyo3_lib_rs(package_name: str) -> str:
+def pyo3_lib_rs_scaffold(package_name: str) -> str:
+    """Return the minimal PyO3 lib.rs scaffold written for new migrations."""
     return (
         "use pyo3::prelude::*;\n\n"
         "#[pymodule]\n"
@@ -59,6 +60,14 @@ def _pyo3_lib_rs(package_name: str) -> str:
         "    Ok(())\n"
         "}\n"
     )
+
+
+def _pyo3_lib_rs(package_name: str) -> str:
+    return pyo3_lib_rs_scaffold(package_name)
+
+
+ORCHESTRATOR_STATE_DIR = ".orchestrator"
+CHECKPOINT_FILENAME = "state.json"
 
 
 @dataclass(frozen=True)
@@ -104,6 +113,15 @@ class MigrationLayout:
     @property
     def api_signatures_cache_root(self) -> Path:
         return self.py_tests_root / API_SIGNATURES_DIR
+
+    @property
+    def checkpoint_path(self) -> Path:
+        return self.py_tests_root / ORCHESTRATOR_STATE_DIR / CHECKPOINT_FILENAME
+
+    @property
+    def measurements_root(self) -> Path:
+        name = self.source_root.name
+        return self.source_root.parent / f"{name}_measurements"
 
     def _ensure_python_lint_config(self) -> None:
         flake8_path = self.py_tests_root / ".flake8"

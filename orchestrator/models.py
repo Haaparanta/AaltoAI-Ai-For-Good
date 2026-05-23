@@ -20,6 +20,7 @@ class AgentId(str, Enum):
     TRANSLATOR = "translator"
     REVIEWER = "reviewer"
     EXECUTOR = "executor"
+    BENCHMARKER = "benchmarker"
 
     @classmethod
     def from_key(cls, agent_key: str) -> AgentId:
@@ -52,6 +53,7 @@ class WorkflowStep(str, Enum):
     TRANSLATE_CODE = "translate_code"
     REVIEW_RUST_CODE = "review_rust_code"
     RUN_TESTS = "run_tests"
+    MEASURE_PERFORMANCE = "measure_performance"
     DONE = "done"
 
     @property
@@ -74,6 +76,7 @@ _STEP_LABELS: dict[WorkflowStep, str] = {
     WorkflowStep.TRANSLATE_CODE: "3 — Translate code to Rust (PyO3)",
     WorkflowStep.REVIEW_RUST_CODE: "4 — Review Rust source",
     WorkflowStep.RUN_TESTS: "5 — Build wheel & run pytest",
+    WorkflowStep.MEASURE_PERFORMANCE: "6 — Benchmark Python vs Rust",
     WorkflowStep.DONE: "Migration complete",
 }
 
@@ -83,6 +86,7 @@ _STEP_NUMBERS: dict[WorkflowStep, int] = {
     WorkflowStep.TRANSLATE_CODE: 3,
     WorkflowStep.REVIEW_RUST_CODE: 4,
     WorkflowStep.RUN_TESTS: 5,
+    WorkflowStep.MEASURE_PERFORMANCE: 6,
 }
 
 _HUMAN_REVIEW_STEPS = frozenset(
@@ -198,6 +202,7 @@ _WORK_STEPS = frozenset(
         WorkflowStep.CREATE_TEST_PY,
         WorkflowStep.TRANSLATE_CODE,
         WorkflowStep.RUN_TESTS,
+        WorkflowStep.MEASURE_PERFORMANCE,
     }
 )
 

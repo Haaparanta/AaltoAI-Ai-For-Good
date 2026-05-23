@@ -13,6 +13,12 @@ from llm.openai_client import OpenAIClient
 from llm.types import LLMClient
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout
+from orchestrator.progress import (
+    ProgressSnapshot,
+    clear_checkpoint,
+    detect_migration_progress,
+    save_checkpoint,
+)
 from agents.runner import review_step_for_work_step
 from orchestrator.models import (
     REVIEW_TO_WORK,
@@ -35,7 +41,8 @@ StateCallback = Callable[[OrchestratorState], Awaitable[None] | None]
 _NEXT_AFTER_WORK: dict[WorkflowStep, WorkflowStep] = {
     WorkflowStep.CREATE_TEST_PY: WorkflowStep.REVIEW_PLAN_PY,
     WorkflowStep.TRANSLATE_CODE: WorkflowStep.REVIEW_RUST_CODE,
-    WorkflowStep.RUN_TESTS: WorkflowStep.DONE,
+    WorkflowStep.RUN_TESTS: WorkflowStep.MEASURE_PERFORMANCE,
+    WorkflowStep.MEASURE_PERFORMANCE: WorkflowStep.DONE,
 }
 
 _NEXT_AFTER_APPROVE: dict[WorkflowStep, WorkflowStep] = {
@@ -88,9 +95,21 @@ class OrchestratorController:
         if isinstance(self._llm, OpenAIClient):
             await self._llm.verify_connection()
 
-    async def start_migration(self, workspace: str | None = None) -> None:
-        if self.state.running:
-            return
+    def detect_progress(self) -> ProgressSnapshot:
+        """Detect migration step from checkpoint or filesystem artifacts."""
+        self._layout = MigrationLayout.from_source_project(self.state.workspace)
+        return detect_migration_progress(self._layout)
+
+    def _persist_checkpoint(self) -> None:
+        layout = self.state.layout or self._layout
+        save_checkpoint(
+            layout,
+            workflow_step=self.state.workflow_step,
+            awaiting_human=self.state.awaiting_human,
+            last_agent_summary=self.state.last_agent_summary,
+        )
+
+    async def _prepare_migration(self, workspace: str | None = None) -> None:
         await self.ensure_llm_ready()
         if workspace is not None:
             self.state.workspace = workspace
@@ -107,19 +126,65 @@ class OrchestratorController:
         )
         if isinstance(self._llm, OpenAIClient):
             self._llm._executor = self._executor
+        os.environ[WORKSPACE_ROOT_ENV] = str(self._layout.source_root)
 
-        root = self._layout.source_root
-        os.environ[WORKSPACE_ROOT_ENV] = str(root)
+    async def start_migration(
+        self,
+        workspace: str | None = None,
+        *,
+        force_fresh: bool = False,
+    ) -> None:
+        if self.state.running:
+            return
+        if force_fresh:
+            await self.start_fresh_migration(workspace)
+            return
+        progress = self.detect_progress()
+        if progress.is_resumable and progress.workflow_step != WorkflowStep.IDLE:
+            await self.resume_migration(progress, workspace=workspace)
+            return
+        await self.start_fresh_migration(workspace)
+
+    async def start_fresh_migration(self, workspace: str | None = None) -> None:
+        if self.state.running:
+            return
+        await self._prepare_migration(workspace)
+        clear_checkpoint(self._layout)
         self.state.running = True
         self.state.workflow_step = WorkflowStep.CREATE_TEST_PY
         self.state.last_agent_summary = ""
+        self.state.awaiting_human = False
+        self.state.review = None
         self.state.append_log(
-            f"Migration started — source (read-only): {self._layout.source_root}"
+            f"Migration started fresh — source (read-only): {self._layout.source_root}"
         )
         self.state.append_log(f"Python tests: {self._layout.py_tests_root}")
         self.state.append_log(f"Rust code: {self._layout.rust_root}")
         if self.state.llm_display:
             self.state.append_log(f"LLM: {self.state.llm_display}")
+        self._persist_checkpoint()
+        await self._notify()
+        self._task = asyncio.create_task(self._run_loop())
+
+    async def resume_migration(
+        self,
+        progress: ProgressSnapshot,
+        *,
+        workspace: str | None = None,
+    ) -> None:
+        if self.state.running:
+            return
+        await self._prepare_migration(workspace)
+        self.state.running = True
+        self.state.workflow_step = progress.workflow_step
+        self.state.last_agent_summary = progress.last_agent_summary
+        self.state.append_log(
+            f"Resuming migration at: {progress.display_label()}"
+        )
+        self.state.append_log(f"Source (read-only): {self._layout.source_root}")
+        if self.state.llm_display:
+            self.state.append_log(f"LLM: {self.state.llm_display}")
+        self._persist_checkpoint()
         await self._notify()
         self._task = asyncio.create_task(self._run_loop())
 
@@ -133,6 +198,8 @@ class OrchestratorController:
             self._task = None
         self.state.running = False
         self._pause.set()
+        if self.state.workflow_step != WorkflowStep.IDLE:
+            self._persist_checkpoint()
         self.state.clear_human_review()
         self.state.reset_agents_to_idle()
         self.state.set_agent(AgentId.ORCHESTRATOR, AgentStatus.IDLE)
@@ -163,6 +230,7 @@ class OrchestratorController:
         if next_step is None:
             return False
         self.state.workflow_step = next_step
+        self._persist_checkpoint()
         await self._notify()
         self._pause.set()
         return True
@@ -199,6 +267,7 @@ class OrchestratorController:
         self.state.clear_human_review()
         self.state.reset_agents_to_idle()
         self.state.workflow_step = work_step
+        self._persist_checkpoint()
         await self._notify()
         self._pause.set()
         return True
@@ -245,6 +314,7 @@ class OrchestratorController:
             detail="Step failed — review required",
         )
         self.state.append_log(f"Paused after failure: {step.label}", level="error")
+        self._persist_checkpoint()
         await self._notify()
 
     async def _enter_test_failure_review(self, result: StepRunResult) -> None:
@@ -261,6 +331,7 @@ class OrchestratorController:
             detail="Tests failed — approve to retry",
         )
         self.state.append_log(f"Paused for human review: {self.state.review.title}")
+        self._persist_checkpoint()
         await self._notify()
 
     async def _enter_human_review(self, step: WorkflowStep) -> None:
@@ -281,6 +352,7 @@ class OrchestratorController:
             detail="Awaiting your review",
         )
         self.state.append_log(f"Paused for human review: {ctx.title}")
+        self._persist_checkpoint()
         await self._notify()
 
     async def _run_agent_work(self, step: WorkflowStep) -> None:
@@ -297,6 +369,10 @@ class OrchestratorController:
 
         if step == WorkflowStep.RUN_TESTS and not result.success:
             await self._enter_test_failure_review(result)
+            return
+
+        if step == WorkflowStep.MEASURE_PERFORMANCE and not result.success:
+            await self._enter_step_failure_review(step, result)
             return
 
         if not result.success and not result.allow_advance:
@@ -331,5 +407,6 @@ class OrchestratorController:
 
         self.state.workflow_step = next_step
         self.state.append_log(f"Advanced to: {next_step.label}")
+        self._persist_checkpoint()
         await self._notify()
         self._pause.set()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agents.analyzer import SYSTEM_PROMPT as ANALYZER_SYSTEM_PROMPT
+from agents.benchmarker import SYSTEM_PROMPT as BENCHMARKER_SYSTEM_PROMPT
 from agents.py_tester import SYSTEM_PROMPT as PY_TESTER_SYSTEM_PROMPT
 from agents.reviewer import SYSTEM_PROMPT as REVIEWER_SYSTEM_PROMPT
 from agents.scaffolder import SYSTEM_PROMPT as SCAFFOLDER_SYSTEM_PROMPT
@@ -72,6 +73,13 @@ _WORKFLOW_AGENTS: tuple[AgentSpec, ...] = (
         display_name="Executor",
         role="Runs commands via MCP executor",
         prompt="",
+        llm=False,
+    ),
+    AgentSpec(
+        id="benchmarker",
+        display_name="Benchmarker",
+        role="Measures Python vs Rust performance",
+        prompt=BENCHMARKER_SYSTEM_PROMPT,
         llm=False,
     ),
 )
