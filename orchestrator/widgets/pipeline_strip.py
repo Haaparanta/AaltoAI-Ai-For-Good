@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from rich.text import Text
 from textual.widgets import Static
 
 from orchestrator.models import AgentStatus, WorkflowStep
@@ -25,26 +24,26 @@ class PipelineStrip(Static):
         workflow_step: WorkflowStep,
         active_runs: list[tuple[str, AgentStatus]],
     ) -> None:
-        parts: list[str | Text] = []
+        parts: list[str] = []
         for index, step in enumerate(_PIPELINE_STEPS):
             if index:
                 parts.append(" → ")
             number = step.step_number or "?"
             if step == workflow_step:
-                parts.append(Text(f"[{number}●]", style="bold accent"))
+                parts.append(f"[b $accent][{number}●][/]")
             elif _step_is_past(step, workflow_step):
-                parts.append(Text(f"[{number}✓]", style="dim"))
+                parts.append(f"[$text-muted][{number}✓][/]")
             else:
-                parts.append(Text(f"[{number} ]", style="dim"))
+                parts.append(f"[$text-muted][{number} ][/]")
 
         if active_runs:
             bars = " ".join(
                 f"{'▪' if status == AgentStatus.RUNNING else '▫'}"
                 for _label, status in active_runs
             )
-            parts.append(Text(f"  {bars}", style="success"))
+            parts.append(f"[$success]  {bars}[/]")
 
-        self.update(Text.assemble(*parts))
+        self.update("".join(parts))
 
 
 def _step_is_past(step: WorkflowStep, current: WorkflowStep) -> bool:
