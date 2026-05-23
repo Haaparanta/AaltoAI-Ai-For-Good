@@ -22,6 +22,7 @@ from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout
 from orchestrator.model_select import ModelSelectScreen
 from orchestrator.models import AgentId, AgentStatus, WorkflowStep
+from orchestrator.progress import ProgressSnapshot
 from orchestrator.state import OrchestratorState
 from orchestrator.widgets.pipeline_strip import PipelineStrip
 
@@ -46,7 +47,8 @@ class MigratorApp(App[None]):
     BINDINGS = [
         Binding("a", "approve", "Approve", show=True),
         Binding("s", "submit_feedback", "Send feedback", show=True),
-        Binding("r", "start_migration", "Start", show=True),
+        Binding("r", "start_migration", "Resume/Start", show=True),
+        Binding("R", "start_fresh_migration", "Start fresh", show=True),
         Binding("m", "change_model", "Change model", show=True),
         Binding("up", "select_prev_run", "Prev run", show=False),
         Binding("down", "select_next_run", "Next run", show=False),
@@ -67,6 +69,8 @@ class MigratorApp(App[None]):
         self._log_count = 0
         self._llm_ready = model_choice is not None
         self._run_row_keys: list[str] = []
+        self._detected_progress: ProgressSnapshot | None = None
+        self._default_force_fresh = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -103,7 +107,7 @@ class MigratorApp(App[None]):
                 yield RichLog(id="activity-log", highlight=True, markup=True)
         with Container(id="footer-bar"):
             yield Static(
-                "r start · a approve · s feedback · f filter · c compact · x cancel · q quit",
+                "r resume · R fresh start · a approve · s feedback · f filter · c compact · x cancel · q quit",
                 id="help-line",
             )
             with Horizontal(id="human-input-row", classes="hidden"):
@@ -170,6 +174,11 @@ class MigratorApp(App[None]):
             layout=layout,
             provider_id=choice.provider_id,
         )
+        self._detected_progress = self._controller.detect_progress()
+        if self._detected_progress.is_resumable:
+            self._state.append_log(
+                f"Detected progress: {self._detected_progress.display_label()}"
+            )
 
     async def _on_state_change(self, _state: OrchestratorState) -> None:
         self.state_version += 1
@@ -218,7 +227,7 @@ class MigratorApp(App[None]):
         step = state.workflow_step
         step_text = step.label
         if step.step_number is not None and step != WorkflowStep.DONE:
-            step_text = f"Step {step.step_number}/5 — {step.label}"
+            step_text = f"Step {step.step_number}/6 — {step.label}"
         active_runs = state.active_run_count
         if active_runs:
             step_text = f"{step_text} · {active_runs} active"
@@ -253,10 +262,15 @@ class MigratorApp(App[None]):
             paths_panel.remove_class("hidden")
 
         if state.layout is not None:
-            self.query_one("#paths-text", Static).update(state.layout.describe_paths())
+            paths_text = state.layout.describe_paths()
         else:
             layout = MigrationLayout.from_source_project(state.workspace)
-            self.query_one("#paths-text", Static).update(layout.describe_paths())
+            paths_text = layout.describe_paths()
+        if self._detected_progress is not None and self._detected_progress.is_resumable:
+            paths_text += f"\n\nDetected: {self._detected_progress.display_label()}"
+        elif self._detected_progress is not None and self._detected_progress.workflow_step == WorkflowStep.DONE:
+            paths_text += "\n\nDetected: Migration complete"
+        self.query_one("#paths-text", Static).update(paths_text)
 
         summary = state.last_agent_summary.strip() or "(no agent output yet)"
         if len(summary) > 800:
@@ -336,6 +350,11 @@ class MigratorApp(App[None]):
             status = "✓  Migration complete"
         elif not self._llm_ready:
             status = "Setting up LLM…"
+        elif (
+            self._detected_progress is not None
+            and self._detected_progress.is_resumable
+        ):
+            status = "Press r to resume · R to start fresh"
         else:
             status = "Press r to start the migration pipeline"
         self.query_one("#status-line", Static).update(status)
@@ -486,12 +505,33 @@ class MigratorApp(App[None]):
         if self._state.running:
             self.notify("Migration already running", severity="information")
             return
-        self._start_work()
+        self._start_work(force_fresh=self._default_force_fresh)
 
     @work(exclusive=True)
-    async def _start_work(self) -> None:
+    async def _start_work(self, *, force_fresh: bool = False) -> None:
         try:
-            await self._require_controller().start_migration()
+            await self._require_controller().start_migration(force_fresh=force_fresh)
+            if self._controller is not None:
+                self._detected_progress = self._controller.detect_progress()
+        except (LLMConfigurationError, RuntimeError) as exc:
+            self.notify(str(exc), severity="error", timeout=12)
+            self._state.append_log(str(exc), level="error")
+            self.state_version += 1
+
+    def action_start_fresh_migration(self) -> None:
+        if not self._llm_ready:
+            self.notify("Still setting up LLM — please wait", severity="warning")
+            return
+        if self._state.running:
+            self.notify("Migration already running", severity="information")
+            return
+        self._start_fresh_work()
+
+    @work(exclusive=True)
+    async def _start_fresh_work(self) -> None:
+        try:
+            await self._require_controller().start_fresh_migration()
+            self._detected_progress = self._controller.detect_progress() if self._controller else None
         except (LLMConfigurationError, RuntimeError) as exc:
             self.notify(str(exc), severity="error", timeout=12)
             self._state.append_log(str(exc), level="error")
@@ -533,9 +573,34 @@ def main() -> None:
         default=".",
         help="Path to the Python project being migrated (read-only)",
     )
+    parser.add_argument(
+        "--resume",
+        choices=("auto", "fresh"),
+        default="auto",
+        help="On start (r): auto-resume detected progress or fresh (default: auto)",
+    )
+    parser.add_argument(
+        "--detect-only",
+        action="store_true",
+        help="Print detected migration step and exit",
+    )
     args = parser.parse_args()
     workspace = str(Path(args.workspace).resolve())
-    MigratorApp(workspace=workspace).run()
+
+    if args.detect_only:
+        layout = MigrationLayout.from_source_project(workspace)
+        from orchestrator.progress import detect_migration_progress
+
+        progress = detect_migration_progress(layout)
+        print(progress.display_label())
+        print(f"step={progress.workflow_step.value}")
+        print(f"source={progress.source.value}")
+        print(f"confidence={progress.confidence.value}")
+        raise SystemExit(0)
+
+    app = MigratorApp(workspace=workspace)
+    app._default_force_fresh = args.resume == "fresh"
+    app.run()
 
 
 if __name__ == "__main__":
