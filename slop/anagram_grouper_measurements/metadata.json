@@ -1,0 +1,23 @@
+{
+  "project": "anagram_grouper",
+  "generated_at": "2026-05-23T09:47:11.401927+00:00",
+  "config": {
+    "iterations": 100,
+    "warmup": 5,
+    "quick": false,
+    "python_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/anagram_grouper_measurements/.python_build/wheels/anagram_grouper_python_bench-0.1.0-py3-none-any.whl",
+    "rust_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/anagram_grouper_migration_rust/target/wheels/main-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+  },
+  "artifacts": {
+    "python_source_bytes": 785,
+    "python_wheel_bytes": 1610,
+    "python_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/anagram_grouper_measurements/.python_build/wheels/anagram_grouper_python_bench-0.1.0-py3-none-any.whl",
+    "python_build_seconds": 0.6696446249261498,
+    "rust_wheel_bytes": 212484,
+    "rust_native_extension_bytes": 503680,
+    "rust_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/anagram_grouper_migration_rust/target/wheels/main-0.1.0-cp312-cp312-macosx_11_0_arm64.whl",
+    "rust_build_seconds": 0.0
+  },
+  "case_count": 4,
+  "sample_count": 800
+}

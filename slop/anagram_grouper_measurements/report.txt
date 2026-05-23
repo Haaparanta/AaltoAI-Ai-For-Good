@@ -1,0 +1,23 @@
+Performance report: anagram_grouper
+Generated: 2026-05-23T09:47:11.052163+00:00
+
+Both backends run from installed wheels (Python source wheel vs Rust PyO3 wheel).
+
+Artifacts: Python source 785 B; Python wheel 1.6 KiB (0.67s build); Rust wheel 207.5 KiB (0.00s build); Rust native extension 491.9 KiB.
+
+group_anagrams_large (small): tie leads with 0.98× speedup (Python 0.80ms vs Rust 0.81ms). Timing CV Python 4.9% vs Rust 13.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_large (medium): tie leads with 0.99× speedup (Python 0.99ms vs Rust 1.00ms). Timing CV Python 3.0% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_large (large): tie leads with 1.01× speedup (Python 3.49ms vs Rust 3.44ms). Timing CV Python 20.7% vs Rust 7.5%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_large (xlarge): tie leads with 1.00× speedup (Python 12.72ms vs Rust 12.68ms). Timing CV Python 4.8% vs Rust 3.2%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_medium (small): tie leads with 0.98× speedup (Python 0.80ms vs Rust 0.81ms). Timing CV Python 4.9% vs Rust 13.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_medium (medium): tie leads with 0.99× speedup (Python 0.99ms vs Rust 1.00ms). Timing CV Python 3.0% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_medium (large): tie leads with 1.01× speedup (Python 3.49ms vs Rust 3.44ms). Timing CV Python 20.7% vs Rust 7.5%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_medium (xlarge): tie leads with 1.00× speedup (Python 12.72ms vs Rust 12.68ms). Timing CV Python 4.8% vs Rust 3.2%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_small (small): tie leads with 0.98× speedup (Python 0.80ms vs Rust 0.81ms). Timing CV Python 4.9% vs Rust 13.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_small (medium): tie leads with 0.99× speedup (Python 0.99ms vs Rust 1.00ms). Timing CV Python 3.0% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_small (large): tie leads with 1.01× speedup (Python 3.49ms vs Rust 3.44ms). Timing CV Python 20.7% vs Rust 7.5%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_small (xlarge): tie leads with 1.00× speedup (Python 12.72ms vs Rust 12.68ms). Timing CV Python 4.8% vs Rust 3.2%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_xlarge (small): tie leads with 0.98× speedup (Python 0.80ms vs Rust 0.81ms). Timing CV Python 4.9% vs Rust 13.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_xlarge (medium): tie leads with 0.99× speedup (Python 0.99ms vs Rust 1.00ms). Timing CV Python 3.0% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_xlarge (large): tie leads with 1.01× speedup (Python 3.49ms vs Rust 3.44ms). Timing CV Python 20.7% vs Rust 7.5%. Mean peak RSS ratio Rust/Python: 1.00×.
+group_anagrams_xlarge (xlarge): tie leads with 1.00× speedup (Python 12.72ms vs Rust 12.68ms). Timing CV Python 4.8% vs Rust 3.2%. Mean peak RSS ratio Rust/Python: 1.00×.

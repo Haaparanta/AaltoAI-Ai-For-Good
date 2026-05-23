@@ -51,6 +51,7 @@ class MigrationExecutor:
     @staticmethod
     def tool_schemas() -> list[dict[str, Any]]:
         from orchestrator.migration_layout import (
+            PREFIX_MEASUREMENTS,
             PREFIX_PY_TESTS,
             PREFIX_RUST,
             PREFIX_SOURCE,
@@ -58,49 +59,62 @@ class MigrationExecutor:
 
         return [
             MigrationExecutor._read_file_schema(
-                PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST
+                PREFIX_SOURCE,
+                PREFIX_PY_TESTS,
+                PREFIX_RUST,
+                PREFIX_MEASUREMENTS,
             ),
-            MigrationExecutor._write_file_schema(PREFIX_PY_TESTS, PREFIX_RUST),
+            MigrationExecutor._write_file_schema(
+                PREFIX_PY_TESTS,
+                PREFIX_RUST,
+                PREFIX_MEASUREMENTS,
+            ),
             MigrationExecutor._execute_command_schema(),
         ]
 
     @staticmethod
     def tools_for_agent(agent_id: str) -> list[dict[str, Any]]:
-        tools = MigrationExecutor.tool_schemas()
-        if agent_id in ("analyzer", "py_tester"):
-            tools = [*tools, MigrationExecutor._get_api_signatures_schema()]
+        from orchestrator.migration_layout import PREFIX_MEASUREMENTS
+
         if agent_id == "reviewer":
             return [
                 MigrationExecutor._read_file_schema(
                     *MigrationExecutor._path_prefixes()
                 )
             ]
+        if agent_id == "benchmarker":
+            return [
+                MigrationExecutor._read_file_schema(
+                    *MigrationExecutor._path_prefixes()
+                ),
+                MigrationExecutor._write_file_schema(PREFIX_MEASUREMENTS),
+                MigrationExecutor._execute_command_schema(),
+            ]
+        tools = MigrationExecutor.tool_schemas()
+        if agent_id in ("analyzer", "py_tester"):
+            tools = [*tools, MigrationExecutor._get_api_signatures_schema()]
         return tools
 
     @staticmethod
-    def _path_prefixes() -> tuple[str, str, str]:
+    def _path_prefixes() -> tuple[str, str, str, str]:
         from orchestrator.migration_layout import (
+            PREFIX_MEASUREMENTS,
             PREFIX_PY_TESTS,
             PREFIX_RUST,
             PREFIX_SOURCE,
         )
 
-        return PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST
+        return PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_MEASUREMENTS
 
     @staticmethod
-    def _read_file_schema(
-        prefix_source: str,
-        prefix_py_tests: str,
-        prefix_rust: str,
-    ) -> dict[str, Any]:
+    def _read_file_schema(*prefixes: str) -> dict[str, Any]:
+        prefix_list = ", ".join(f"`{prefix}/`" for prefix in prefixes)
         return {
             "type": "function",
             "function": {
                 "name": "read_file",
                 "description": (
-                    "Read a file. Prefix paths: "
-                    f"`{prefix_source}/` (original Python, read-only), "
-                    f"`{prefix_py_tests}/`, `{prefix_rust}/`."
+                    f"Read a file. Prefix paths: {prefix_list}."
                 ),
                 "parameters": {
                     "type": "object",
@@ -115,19 +129,16 @@ class MigrationExecutor:
         }
 
     @staticmethod
-    def _write_file_schema(
-        prefix_py_tests: str,
-        prefix_rust: str,
-    ) -> dict[str, Any]:
+    def _write_file_schema(*prefixes: str) -> dict[str, Any]:
+        allowed = ", ".join(f"`{prefix}/`" for prefix in prefixes)
         return {
             "type": "function",
             "function": {
                 "name": "write_file",
                 "description": (
-                    "Write a migration artifact. Only "
-                    f"`{prefix_py_tests}/` and `{prefix_rust}/` "
-                    "are allowed (never write to source/). "
-                    f"Python files under `{prefix_py_tests}/` are auto-formatted with "
+                    "Write a migration artifact. Allowed prefixes: "
+                    f"{allowed} (never write to source/). "
+                    "Python files under `py_tests/` are auto-formatted with "
                     "black and checked with flake8 and mypy; lint results are returned."
                 ),
                 "parameters": {
@@ -150,7 +161,7 @@ class MigrationExecutor:
                 "name": "execute_command",
                 "description": (
                     "Run a shell command. Set cwd to py_tests, rust, "
-                    "or source for read-only inspection."
+                    "measurements, or source for read-only inspection."
                 ),
                 "parameters": {
                     "type": "object",
@@ -158,7 +169,7 @@ class MigrationExecutor:
                         "command": {"type": "string"},
                         "cwd": {
                             "type": "string",
-                            "description": "py_tests | rust | source",
+                            "description": "py_tests | rust | measurements | source",
                         },
                         "timeout_seconds": {"type": "integer"},
                         "env": {

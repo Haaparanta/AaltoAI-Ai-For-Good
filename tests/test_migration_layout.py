@@ -44,3 +44,12 @@ def test_resolve_write_py_tests(workspace_root: Path) -> None:
     root, rel = layout.resolve_write(f"{PREFIX_PY_TESTS}/tests/test_x.py")
     assert root == layout.py_tests_root
     assert rel == "tests/test_x.py"
+
+
+def test_resolve_write_measurements(workspace_root: Path) -> None:
+    from orchestrator.migration_layout import PREFIX_MEASUREMENTS
+
+    layout = MigrationLayout.from_source_project(workspace_root)
+    root, rel = layout.resolve_write(f"{PREFIX_MEASUREMENTS}/benchmark_suite.toml")
+    assert root == layout.measurements_root
+    assert rel == "benchmark_suite.toml"

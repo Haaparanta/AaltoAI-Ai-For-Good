@@ -16,6 +16,7 @@ flowchart TB
     Orch --> Translator
     Orch --> Reviewer
     Orch --> Exec[Executor]
+    Orch --> Bench[Benchmarker]
 
     Analyzer --> LLM
     PyTester --> LLM
@@ -29,10 +30,12 @@ flowchart TB
     Translator --> ME
     Reviewer --> ME
     Exec --> ME
+    Bench --> ME
 
     ME --> Source[source/ read-only]
     ME --> Py[py_tests/]
     ME --> Ru[rust/ PyO3]
+    ME --> Meas[measurements/]
 ```
 
 **Agents:** see [Agents](#agents) below for roles, tools, and when each runs.
@@ -43,9 +46,10 @@ flowchart TB
 myproject/                      # read-only
 myproject_migration_py_tests/   # migration_plan.md, pytest
 myproject_migration_rust/       # Cargo.toml, pyproject.toml, PyO3 src/
+myproject_measurements/         # benchmark CSV, TXT, graphs (step 6)
 ```
 
-Tool paths: `source/`, `py_tests/`, `rust/` (writes to `source/` are blocked).
+Tool paths: `source/`, `py_tests/`, `rust/`, `measurements/` (writes to `source/` are blocked).
 
 ## Workflow
 
@@ -69,12 +73,14 @@ sequenceDiagram
         O->>A: Fix (Translator)
         E->>O: Retry
     end
+    O->>E: 6 Benchmark Python vs Rust wheels
     O->>U: Done or pause for review
 ```
 
 | Key | Action |
 |-----|--------|
-| **r** | Start |
+| **r** | Resume detected progress / start |
+| **R** | Start fresh (clears checkpoint) |
 | **a** | Approve review |
 | **s** | Feedback (re-run prior step) |
 | **m** | Change model |
@@ -83,6 +89,15 @@ sequenceDiagram
 | **c** | Toggle compact layout |
 | **x** | Cancel active agent runs |
 | **q** | Quit |
+
+On startup the orchestrator **detects migration progress** from a checkpoint file
+(`py_tests/.orchestrator/state.json`) or by inferring artifacts on disk. Press **r** to
+resume at the detected step, or **R** to restart from step 1.
+
+```bash
+# Print detected step without opening the TUI
+uv run orchestrator -w /path/to/project --detect-only
+```
 
 ## Concurrent agents
 
@@ -96,17 +111,18 @@ The TUI shows an **Active runs** table, a **pipeline strip**, concurrency slots 
 
 ## Agents
 
-The pipeline uses **eight coordinated roles**. Six are LLM-backed specialists; two are non-LLM infrastructure roles. The **Orchestrator** drives step order, human-review pauses, quality gates, and fix loops. The **Executor** runs shell commands (`pytest`, `cargo`, `maturin`) without an LLM.
+The pipeline uses **nine coordinated roles**. Six are LLM-backed specialists; three are non-LLM infrastructure roles. The **Orchestrator** drives step order, human-review pauses, quality gates, fix loops, and **resume-after-restart**. The **Executor** runs shell commands (`pytest`, `cargo`, `maturin`) without an LLM. The **Benchmarker** runs deterministic performance measurement after migration tests pass.
 
 | Agent | LLM | Write scope | Pipeline role |
 |-------|-----|-------------|---------------|
-| **Orchestrator** | No | — | Advances the 5-step workflow, pauses for human review, dispatches fix loops after lint/pytest/clippy/wheel failures |
+| **Orchestrator** | No | — | Advances the 6-step workflow, checkpoints progress, pauses for human review, dispatches fix loops |
 | **Analyzer** | Yes | `py_tests/` | Step 1 — reads the Python project and writes `migration_plan.md` |
 | **Py Tester** | Yes | `py_tests/` | Step 1 — writes pytest that captures current Python behavior (can fan out per test file) |
 | **Reviewer** | Yes | read-only | After steps 1 and 3 — produces a brief for the human before each review gate |
 | **Scaffolder** | Yes | `rust/` | Step 3 — creates a compilable PyO3/maturin skeleton (`Cargo.toml`, `pyproject.toml`, `src/`) |
 | **Translator** | Yes | `rust/` | Step 3 — implements PyO3 bindings; fixes failures after wheel pytest or clippy (can fan out per `.rs` file) |
 | **Executor** | No | — | Runs `pytest`, `cargo fmt/clippy`, and `maturin build` + install; shown in the TUI during gates |
+| **Benchmarker** | No | `measurements/` | Step 6 — builds Python + Rust wheels, times 100+ runs per case, writes CSV/TXT/graphs to `{project}_measurements/` |
 
 ### Orchestrator
 
@@ -168,6 +184,30 @@ The pipeline uses **eight coordinated roles**. Six are LLM-backed specialists; t
 - **`maturin build`** + pip install — step 5 wheel build before migration pytest
 - Status shown in the TUI agents table during command execution
 
+### Benchmarker
+
+**Intended function:** Deterministic performance comparison — not an LLM agent. Runs automatically as **Step 6** after migration pytest passes (Step 5).
+
+- Builds a **Python source wheel** and uses the existing **Rust PyO3 wheel** (fair comparison — both installed via pip, not raw `PYTHONPATH`)
+- Verifies Python and Rust outputs match before timing
+- Runs benchmarks at four input tiers (**small → medium → large → xlarge**), 100+ iterations each (use `--quick` for 10)
+- Measures latency, variance (CV%, percentiles), peak RSS, CPU%, and artifact sizes
+- Writes reports to **`measurements/`** (`{project}_measurements/` on disk):
+
+```text
+report.txt, raw_runs.csv, summary.csv, metadata.json, graphs/*.png
+```
+
+- Optional custom cases: `measurements/benchmark_suite.toml`
+- Also runnable standalone:
+
+```bash
+uv run benchmark-measurements -w /path/to/python/project
+uv run benchmark-measurements -w /path/to/python/project --quick
+```
+
+See [`agents/benchmarker.py`](agents/benchmarker.py) for the full agent specification.
+
 ### Agent execution order (happy path)
 
 ```text
@@ -176,12 +216,13 @@ The pipeline uses **eight coordinated roles**. Six are LLM-backed specialists; t
 2. Scaffolder → Translator → [fmt/clippy gate]
    → Reviewer → human review
 3. Executor (maturin + migration pytest)
-   → done, or Translator fix loop on failure
+   → Benchmarker (Python vs Rust wheels, reports to measurements/)
+   → done, or Translator fix loop on step 5 failure
 ```
 
 ## Setup
 
-**Requires:** [uv](https://docs.astral.sh/uv/), `pytest`, `cargo`, `maturin`, and at least one LLM provider.
+**Requires:** [uv](https://docs.astral.sh/uv/), `pytest`, `cargo`, `maturin`, `psutil`, `matplotlib`, and at least one LLM provider.
 
 | Variable | When |
 |----------|------|
@@ -236,4 +277,4 @@ uv run orchestrator -w /path/to/python/project
 
 Optional stdio MCP for Cursor: `uv run executor-mcp` (see [`.cursor/mcp.json`](.cursor/mcp.json)). The TUI uses the same tools in-process via [`orchestrator/migration_executor.py`](orchestrator/migration_executor.py).
 
-Main code: [`orchestrator/`](orchestrator/), [`agents/`](agents/), [`llm/`](llm/), [`executor_mcp/`](executor_mcp/).
+Main code: [`orchestrator/`](orchestrator/), [`agents/`](agents/), [`benchmark/`](benchmark/), [`llm/`](llm/), [`executor_mcp/`](executor_mcp/).

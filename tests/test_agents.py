@@ -6,6 +6,7 @@ import pytest
 
 from agents import (
     ANALYZER_SYSTEM_PROMPT,
+    BENCHMARKER_SYSTEM_PROMPT,
     PY_TESTER_SYSTEM_PROMPT,
     REVIEWER_SYSTEM_PROMPT,
     SCAFFOLDER_SYSTEM_PROMPT,
@@ -33,7 +34,16 @@ def test_get_system_prompt_round_trip() -> None:
 def test_registry_write_prefixes() -> None:
     assert get_spec("py_tester").write_prefixes == ("py_tests/",)
     assert get_spec("translator").write_prefixes == ("rust/",)
+    assert get_spec("benchmarker").write_prefixes == ("measurements/",)
     assert get_spec("reviewer").read_only is True
+
+
+def test_benchmarker_prompt_and_role() -> None:
+    assert BENCHMARKER_SYSTEM_PROMPT.strip()
+    assert "Step 6" in BENCHMARKER_SYSTEM_PROMPT
+    spec = get_spec("benchmarker")
+    assert spec.llm is False
+    assert "measurements" in spec.role
 
 
 def test_get_system_prompt_unknown_agent() -> None:

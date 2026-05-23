@@ -78,9 +78,10 @@ _WORKFLOW_AGENTS: tuple[AgentSpec, ...] = (
     AgentSpec(
         id="benchmarker",
         display_name="Benchmarker",
-        role="Measures Python vs Rust performance",
+        role="Step 6 — benchmarks Python vs Rust wheels into measurements/",
         prompt=BENCHMARKER_SYSTEM_PROMPT,
         llm=False,
+        write_prefixes=("measurements/",),
     ),
 )
 
@@ -95,6 +96,7 @@ SYSTEM_PROMPTS: dict[str, str] = {
 __all__ = [
     "ALL_AGENTS",
     "ANALYZER_SYSTEM_PROMPT",
+    "BENCHMARKER_SYSTEM_PROMPT",
     "AgentSpec",
     "LLM_AGENT_IDS",
     "PY_TESTER_SYSTEM_PROMPT",

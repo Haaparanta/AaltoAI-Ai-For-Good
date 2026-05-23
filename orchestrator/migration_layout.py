@@ -10,8 +10,9 @@ from executor_mcp.api_signatures import API_SIGNATURES_DIR, detect_import_target
 PREFIX_SOURCE = "source"
 PREFIX_PY_TESTS = "py_tests"
 PREFIX_RUST = "rust"
+PREFIX_MEASUREMENTS = "measurements"
 
-_WRITE_PREFIXES = (PREFIX_PY_TESTS, PREFIX_RUST)
+_WRITE_PREFIXES = (PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_MEASUREMENTS)
 
 
 def _primary_package_name(source_root: Path) -> str:
@@ -149,7 +150,8 @@ class MigrationLayout:
         return (
             f"Source (read-only): {self.source_root}\n"
             f"Python tests: {self.py_tests_root}\n"
-            f"Rust code (PyO3): {self.rust_root}"
+            f"Rust code (PyO3): {self.rust_root}\n"
+            f"Benchmarks: {self.measurements_root}"
         )
 
     def tool_path_guide(self) -> str:
@@ -157,7 +159,8 @@ class MigrationLayout:
             "Use these path prefixes in tools (never modify source/):\n"
             f"- `{PREFIX_SOURCE}/` — read original Python project files\n"
             f"- `{PREFIX_PY_TESTS}/` — migration_plan.md, pytest under tests/\n"
-            f"- `{PREFIX_RUST}/` — Cargo.toml, pyproject.toml, PyO3 src/"
+            f"- `{PREFIX_RUST}/` — Cargo.toml, pyproject.toml, PyO3 src/\n"
+            f"- `{PREFIX_MEASUREMENTS}/` — benchmark reports, graphs, optional benchmark_suite.toml"
         )
 
     def resolve_read(self, user_path: str) -> tuple[Path, str]:
@@ -167,6 +170,7 @@ class MigrationLayout:
             (PREFIX_SOURCE, self.source_root),
             (PREFIX_PY_TESTS, self.py_tests_root),
             (PREFIX_RUST, self.rust_root),
+            (PREFIX_MEASUREMENTS, self.measurements_root),
         ):
             if normalized == prefix or normalized.startswith(f"{prefix}/"):
                 rel = normalized[len(prefix) :].lstrip("/")
@@ -174,11 +178,12 @@ class MigrationLayout:
         return self.source_root, normalized
 
     def resolve_write(self, user_path: str) -> tuple[Path, str]:
-        """Writes must target py_tests/ or rust/ only."""
+        """Writes must target py_tests/, rust/, or measurements/."""
         normalized = user_path.strip().replace("\\", "/")
         for prefix, root in (
             (PREFIX_PY_TESTS, self.py_tests_root),
             (PREFIX_RUST, self.rust_root),
+            (PREFIX_MEASUREMENTS, self.measurements_root),
         ):
             if normalized == prefix or normalized.startswith(f"{prefix}/"):
                 rel = normalized[len(prefix) :].lstrip("/")
@@ -187,7 +192,7 @@ class MigrationLayout:
                 return root, rel
         raise ValueError(
             "Writes are not allowed in the original project. Use "
-            f"{PREFIX_PY_TESTS}/ or {PREFIX_RUST}/ prefixes."
+            f"{PREFIX_PY_TESTS}/, {PREFIX_RUST}/, or {PREFIX_MEASUREMENTS}/ prefixes."
         )
 
     def resolve_command_cwd(self, cwd: str | None) -> Path:
@@ -198,6 +203,7 @@ class MigrationLayout:
             PREFIX_SOURCE: self.source_root,
             PREFIX_PY_TESTS: self.py_tests_root,
             PREFIX_RUST: self.rust_root,
+            PREFIX_MEASUREMENTS: self.measurements_root,
         }
         for prefix, root in mapping.items():
             if normalized == prefix or normalized.startswith(f"{prefix}/"):
