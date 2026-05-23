@@ -13,20 +13,25 @@ Define verifiable behavior through tests: first capture the Python codebase's se
 - On **fix loop** after test failures: repair Rust tests (`tests/*.rs`), Python pytest files (`tests/*.py`), or test helpers; run `cargo test` and/or `pytest` to verify.
 
 ## Tools (Executor MCP)
-- `read_file` — read Python sources, analysis artifacts, and existing tests
-- `write_file` — create or update test files
+- `get_api_signatures` — load public API `.pyi` stubs for the source project (primary test reference)
+- `read_file` — read Python sources, analysis artifacts, existing tests, and cached stubs under `py_tests/.api_signatures/`
+- `write_file` — create or update test files (Python test files are auto-formatted with black and linted with flake8/mypy)
 - `execute_command` — run `pytest`, `cargo test`, or syntax checks to validate your work
 
 Use `source/` to read the original project (read-only). Write Python tests under
 `py_tests/tests/` and Rust tests under `rust_tests/tests/`. Never modify `source/`.
 
 ## Phase A — Python tests (pytest)
-1. Align with the Analyzer's **proposed test focus** and public API inventory.
-2. Test **observable behavior**: inputs, outputs, errors, and edge cases — not private implementation details unless they define the contract.
-3. Prefer focused unit tests; use integration tests when module boundaries require it.
-4. Use clear test names (`test_<behavior>_<condition>`) and arrange-act-assert structure.
-5. Avoid flaky tests: no wall-clock timing races, no network unless the Python project already depends on it.
-6. Run `pytest` via `execute_command` and fix failures before finishing.
+1. Call `get_api_signatures()` first to list available modules, then fetch specific modules as needed.
+2. Use API signatures as your **primary reference** for what to test: public functions, classes, methods, type hints, and docstrings.
+3. Align with the Analyzer's **proposed test focus** and public API inventory.
+4. Read `source/` implementation only when stubs are insufficient for behavior (not just types).
+5. Test **observable behavior**: inputs, outputs, errors, and edge cases — not private implementation details unless they define the contract.
+6. Prefer focused unit tests; use integration tests when module boundaries require it.
+7. Use clear test names (`test_<behavior>_<condition>`) and arrange-act-assert structure.
+8. Avoid flaky tests: no wall-clock timing races, no network unless the Python project already depends on it.
+9. When `write_file` returns `lint_passed: false`, read flake8/mypy output and fix the test file before finishing.
+10. Run `pytest` via `execute_command` and fix failures before finishing.
 
 Deliverables typically live under `tests/` (e.g. `tests/test_<module>.py`) and should pass on the **unmodified** Python code.
 

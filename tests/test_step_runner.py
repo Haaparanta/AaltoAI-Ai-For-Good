@@ -8,6 +8,7 @@ from pathlib import Path
 from agents.runner import (
     build_user_message,
     fix_agents_for_cargo_output,
+    fix_agents_for_lint_output,
     fix_agents_for_pytest_output,
 )
 from orchestrator.migration_executor import MigrationExecutor
@@ -89,6 +90,36 @@ def test_fix_agents_for_rust_test_syntax_error() -> None:
 
 def test_fix_agents_for_pytest_failure() -> None:
     assert fix_agents_for_pytest_output("FAILED tests/test_x.py") == ("tester",)
+
+
+def test_fix_agents_for_lint_failure() -> None:
+    assert fix_agents_for_lint_output("flake8: E401") == ("tester",)
+
+
+def test_create_test_py_lint_gate_passes(
+    workspace_root: Path,
+    migration_layout: MigrationLayout,
+    migration_executor: MigrationExecutor,
+) -> None:
+    async def run() -> None:
+        runner = _runner(workspace_root, migration_layout, migration_executor)
+        result = await runner.run(WorkflowStep.CREATE_TEST_PY)
+        assert result.success
+        assert (migration_layout.py_tests_root / ".flake8").is_file()
+        assert (migration_layout.py_tests_root / "mypy.ini").is_file()
+
+    _run(run())
+
+
+def test_lint_fix_message_phase(migration_layout: MigrationLayout) -> None:
+    message = build_user_message(
+        WorkflowStep.CREATE_TEST_PY,
+        layout=migration_layout,
+        agent_id="tester",
+        message_phase="lint_fix",
+    )
+    assert "FIX AFTER LINT FAILURE" in message
+    assert "flake8" in message
 
 
 def test_run_tests_failure_dispatches_translator(

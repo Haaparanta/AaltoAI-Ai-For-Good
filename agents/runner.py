@@ -24,6 +24,13 @@ def build_user_message(
     paths = layout.tool_path_guide()
     source = str(layout.source_root)
 
+    if step == WorkflowStep.CREATE_TEST_PY and message_phase == "lint_fix":
+        return (
+            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
+            "Phase: FIX AFTER LINT FAILURE.\n"
+            f"flake8 and/or mypy failed on Python tests under `{PREFIX_PY_TESTS}/tests/`. "
+            "Fix the test files so all writes pass lint. Run pytest with cwd py_tests when clean."
+        )
     if step == WorkflowStep.CREATE_TEST_PY and message_phase == "pytest_fix":
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
@@ -41,9 +48,12 @@ def build_user_message(
             )
         else:
             task = (
-                f"Read `{PREFIX_PY_TESTS}/migration_plan.md` and write pytest tests "
+                f"Call `get_api_signatures()` to load the public API surface, then read "
+                f"`{PREFIX_PY_TESTS}/migration_plan.md` and write pytest tests "
                 f"under `{PREFIX_PY_TESTS}/tests/` that capture current Python behavior. "
-                f"Read implementation from `{PREFIX_SOURCE}/`. Run pytest with cwd py_tests."
+                f"Read implementation from `{PREFIX_SOURCE}/` when stubs are insufficient. "
+                "Ensure all Python test writes pass flake8 and mypy (fix lint errors "
+                "returned by write_file). Run pytest with cwd py_tests."
             )
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
@@ -108,6 +118,11 @@ def fix_agents_for_cargo_output(output: str) -> tuple[str, ...]:
 
 def fix_agents_for_pytest_output(_output: str) -> tuple[str, ...]:
     """Agents to run after a pytest failure during baseline capture."""
+    return ("tester",)
+
+
+def fix_agents_for_lint_output(_output: str) -> tuple[str, ...]:
+    """Agents to run after flake8/mypy failure on Python tests."""
     return ("tester",)
 
 
