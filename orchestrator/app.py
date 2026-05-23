@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.text import Text
@@ -22,6 +23,7 @@ from orchestrator.migration_layout import MigrationLayout
 from orchestrator.model_select import ModelSelectScreen
 from orchestrator.models import AgentId, AgentStatus, WorkflowStep
 from orchestrator.state import OrchestratorState
+from orchestrator.widgets.pipeline_strip import PipelineStrip
 
 _STATUS_STYLE = {
     AgentStatus.IDLE: "status-idle",
@@ -30,6 +32,8 @@ _STATUS_STYLE = {
     AgentStatus.COMPLETED: "status-completed",
     AgentStatus.ERROR: "status-error",
 }
+
+_LOG_FILTERS = ("all", "selected", "role")
 
 
 class MigratorApp(App[None]):
@@ -44,6 +48,11 @@ class MigratorApp(App[None]):
         Binding("s", "submit_feedback", "Send feedback", show=True),
         Binding("r", "start_migration", "Start", show=True),
         Binding("m", "change_model", "Change model", show=True),
+        Binding("up", "select_prev_run", "Prev run", show=False),
+        Binding("down", "select_next_run", "Next run", show=False),
+        Binding("f", "cycle_log_filter", "Filter log", show=True),
+        Binding("c", "toggle_compact", "Compact", show=True),
+        Binding("x", "cancel_runs", "Cancel runs", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
@@ -57,14 +66,17 @@ class MigratorApp(App[None]):
         self._controller: OrchestratorController | None = None
         self._log_count = 0
         self._llm_ready = model_choice is not None
+        self._run_row_keys: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Container(id="header-bar"):
             yield Static("Agentic Py2Rust Migrator", classes="title")
             yield Static("", id="step-label", classes="step")
+            yield Static("", id="concurrency-label")
             yield Static("", id="workspace-label")
             yield Static("", id="llm-label")
+        yield PipelineStrip("", id="pipeline-strip")
         with Horizontal(id="main-grid"):
             with Vertical(id="left-column"):
                 with Vertical(id="agents-panel"):
@@ -73,13 +85,17 @@ class MigratorApp(App[None]):
                 with Vertical(id="runs-panel"):
                     yield Static("Active runs", classes="panel-title")
                     yield DataTable(id="runs-table", zebra_stripes=True)
+                with Vertical(id="run-detail-panel"):
+                    yield Static("Run detail", classes="panel-title")
+                    yield Static("", id="run-detail-text")
+                    yield Static("", id="run-mini-log")
                 with VerticalScroll(id="paths-panel"):
                     yield Static("Migration layout", classes="panel-title")
                     yield Static("", id="paths-text")
                     yield Static("Last agent summary", classes="panel-title")
                     yield Static("", id="summary-text")
             with Vertical(id="content-panel"):
-                yield Static("Activity", classes="panel-title")
+                yield Static("", id="activity-filter-label", classes="panel-title")
                 with VerticalScroll(id="review-panel"):
                     yield Static("", id="review-title", classes="review-title")
                     yield Static("", id="review-summary")
@@ -87,7 +103,7 @@ class MigratorApp(App[None]):
                 yield RichLog(id="activity-log", highlight=True, markup=True)
         with Container(id="footer-bar"):
             yield Static(
-                "r start · a approve · s feedback · m change model · q quit",
+                "r start · a approve · s feedback · f filter · c compact · x cancel · q quit",
                 id="help-line",
             )
             with Horizontal(id="human-input-row", classes="hidden"):
@@ -152,6 +168,7 @@ class MigratorApp(App[None]):
             llm,
             on_change=self._on_state_change,
             layout=layout,
+            provider_id=choice.provider_id,
         )
 
     async def _on_state_change(self, _state: OrchestratorState) -> None:
@@ -161,9 +178,34 @@ class MigratorApp(App[None]):
         self._append_new_logs()
         self._refresh_ui()
 
+    def _log_entry_visible(self, entry) -> bool:
+        filter_mode = self._state.log_filter
+        if filter_mode == "all":
+            return True
+        if filter_mode == "selected":
+            if not self._state.selected_run_id:
+                return True
+            return entry.run_id == self._state.selected_run_id
+        if filter_mode == "role":
+            if not self._state.selected_run_id:
+                return True
+            selected = self._state.runs.get(self._state.selected_run_id)
+            if selected is not None and entry.role is not None:
+                return entry.role == selected.role
+            return True
+        return True
+
+    def _reload_activity_log(self) -> None:
+        log_widget = self.query_one("#activity-log", RichLog)
+        log_widget.clear()
+        self._log_count = 0
+        self._append_new_logs()
+
     def _append_new_logs(self) -> None:
         log_widget = self.query_one("#activity-log", RichLog)
         for entry in self._state.log[self._log_count :]:
+            if not self._log_entry_visible(entry):
+                continue
             line = entry.format_line()
             if entry.level == "error":
                 log_widget.write(Text(line, style="bold red"), shrink=False)
@@ -181,12 +223,34 @@ class MigratorApp(App[None]):
         if active_runs:
             step_text = f"{step_text} · {active_runs} active"
         self.query_one("#step-label", Static).update(step_text)
+
+        slots = state.max_concurrency
+        self.query_one("#concurrency-label", Static).update(
+            f"▶ {active_runs}/{slots} slots"
+        )
+
         self.query_one("#workspace-label", Static).update(
             f"Source project: {state.workspace}"
         )
         self.query_one("#llm-label", Static).update(
             f"LLM: {state.llm_display or 'not configured'}"
         )
+
+        active_run_rows = [
+            (run.label, run.status)
+            for run in state.runs.values()
+            if run.status in (AgentStatus.RUNNING, AgentStatus.WAITING)
+        ]
+        self.query_one("#pipeline-strip", PipelineStrip).update_pipeline(
+            workflow_step=step,
+            active_runs=active_run_rows,
+        )
+
+        paths_panel = self.query_one("#paths-panel")
+        if state.compact_ui:
+            paths_panel.add_class("hidden")
+        else:
+            paths_panel.remove_class("hidden")
 
         if state.layout is not None:
             self.query_one("#paths-text", Static).update(state.layout.describe_paths())
@@ -216,14 +280,13 @@ class MigratorApp(App[None]):
         ]
         active.sort(key=lambda run: run.started_at)
         runs_table.clear()
+        self._run_row_keys = []
         if active:
             for run in active:
                 status_cell = Text(
                     run.status.value, style=_STATUS_STYLE[run.status]
                 )
                 instance_label = run.label
-                if run.instance > 1 and run.label == state.agents[run.role].display_name:
-                    instance_label = f"{run.label} #{run.instance}"
                 detail = run.detail or run.last_tool or run.kind.value
                 runs_table.add_row(
                     instance_label,
@@ -231,8 +294,19 @@ class MigratorApp(App[None]):
                     detail,
                     key=run.run_id,
                 )
+                self._run_row_keys.append(run.run_id)
         else:
             runs_table.add_row("(none)", "idle", "No active agent runs", key="_empty")
+            self._run_row_keys = []
+
+        if state.selected_run_id and state.selected_run_id not in state.runs:
+            state.selected_run_id = None
+        if state.selected_run_id is None and self._run_row_keys:
+            state.selected_run_id = self._run_row_keys[0]
+        self._refresh_run_detail()
+
+        filter_label = f"Activity · log: {state.log_filter}"
+        self.query_one("#activity-filter-label", Static).update(filter_label)
 
         review_panel = self.query_one("#review-panel")
         human_row = self.query_one("#human-input-row")
@@ -265,6 +339,100 @@ class MigratorApp(App[None]):
         else:
             status = "Press r to start the migration pipeline"
         self.query_one("#status-line", Static).update(status)
+
+    def _refresh_run_detail(self) -> None:
+        state = self._state
+        run_id = state.selected_run_id
+        if run_id is None or run_id not in state.runs:
+            self.query_one("#run-detail-text", Static).update(
+                "Select a run (↑/↓) to inspect scope and recent tools."
+            )
+            self.query_one("#run-mini-log", Static).update("")
+            return
+
+        run = state.runs[run_id]
+        elapsed = datetime.now(timezone.utc) - run.started_at
+        elapsed_text = f"{int(elapsed.total_seconds())}s"
+        detail_lines = [
+            f"Label: {run.label}",
+            f"Scope: {run.scope or '(full stage)'}",
+            f"Kind: {run.kind.value} · elapsed {elapsed_text}",
+        ]
+        if run.last_tool:
+            detail_lines.append(f"Last tool: {run.last_tool}")
+        self.query_one("#run-detail-text", Static).update("\n".join(detail_lines))
+
+        mini_lines: list[str] = []
+        for entry in state.log:
+            if entry.run_id != run_id:
+                continue
+            mini_lines.append(entry.format_line())
+        if len(mini_lines) > 8:
+            mini_lines = mini_lines[-8:]
+        self.query_one("#run-mini-log", Static).update(
+            "\n".join(mini_lines) if mini_lines else "(no log lines yet)"
+        )
+
+    @on(DataTable.RowHighlighted, "#runs-table")
+    def on_run_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.row_key and event.row_key.value != "_empty":
+            self._state.selected_run_id = str(event.row_key.value)
+            self._refresh_run_detail()
+            if self._state.log_filter != "all":
+                self._reload_activity_log()
+
+    def _select_run_by_index(self, index: int) -> None:
+        if not self._run_row_keys:
+            return
+        index %= len(self._run_row_keys)
+        self._state.selected_run_id = self._run_row_keys[index]
+        runs_table = self.query_one("#runs-table", DataTable)
+        try:
+            runs_table.move_cursor(row=index)
+        except Exception:
+            pass
+        self._refresh_run_detail()
+        self._reload_activity_log()
+
+    def action_select_prev_run(self) -> None:
+        if not self._run_row_keys:
+            return
+        current = self._state.selected_run_id
+        if current not in self._run_row_keys:
+            self._select_run_by_index(0)
+            return
+        index = self._run_row_keys.index(current)
+        self._select_run_by_index(index - 1)
+
+    def action_select_next_run(self) -> None:
+        if not self._run_row_keys:
+            return
+        current = self._state.selected_run_id
+        if current not in self._run_row_keys:
+            self._select_run_by_index(0)
+            return
+        index = self._run_row_keys.index(current)
+        self._select_run_by_index(index + 1)
+
+    def action_cycle_log_filter(self) -> None:
+        index = _LOG_FILTERS.index(self._state.log_filter)
+        self._state.log_filter = _LOG_FILTERS[(index + 1) % len(_LOG_FILTERS)]
+        self._reload_activity_log()
+        self._refresh_ui()
+
+    def action_toggle_compact(self) -> None:
+        self._state.compact_ui = not self._state.compact_ui
+        self.state_version += 1
+
+    def action_cancel_runs(self) -> None:
+        if self._controller is None:
+            return
+        count = self._controller.cancel_active_runs()
+        if count:
+            self.notify(f"Cancelled {count} active run(s)", severity="warning")
+            self.state_version += 1
+        else:
+            self.notify("No active runs to cancel", severity="information")
 
     def _require_controller(self) -> OrchestratorController:
         if not self._llm_ready or self._controller is None:

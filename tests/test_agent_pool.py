@@ -161,3 +161,26 @@ def test_run_one_reviewer_tracked(
         assert run_info.role == AgentId.REVIEWER
 
     _run(run())
+
+
+def test_cancel_run_marks_error(
+    workspace_root,
+    migration_layout: Any,
+    migration_executor: MigrationExecutor,
+) -> None:
+    async def run() -> None:
+        state = OrchestratorState(
+            workspace=str(workspace_root), layout=migration_layout
+        )
+        pool = AgentPool(state, migration_executor, ConcurrentTrackingLLM())
+        run_info = state.start_run(
+            role=AgentId.PY_TESTER,
+            label="Py Tester",
+            step=WorkflowStep.CREATE_TEST_PY,
+            kind=RunKind.WORK,
+        )
+        assert pool.cancel_run(run_info.run_id)
+        assert state.runs[run_info.run_id].status == AgentStatus.ERROR
+        assert state.runs[run_info.run_id].detail == "Cancelled"
+
+    _run(run())

@@ -46,6 +46,9 @@ class OrchestratorState:
     last_user_feedback: str = ""
     last_agent_summary: str = ""
     selected_run_id: str | None = None
+    log_filter: str = "all"
+    compact_ui: bool = False
+    max_concurrency: int = 4
     _instance_counters: dict[AgentId, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
