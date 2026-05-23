@@ -11,6 +11,13 @@ from uuid import uuid4
 from agents import get_system_prompt
 from agents.registry import can_run_parallel, get_spec
 from llm.types import LLMClient
+from orchestrator.activity_log import (
+    first_non_empty_line,
+    format_command_finished,
+    format_command_started,
+    parse_tool_result,
+    truncate_line,
+)
 from orchestrator.config import max_agent_concurrency
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.models import AgentId, AgentStatus, RunKind, WorkflowStep
@@ -167,6 +174,11 @@ class AgentPool:
             group_id=spec.group_id,
             scope=spec.scope,
         )
+        self.state.append_log(
+            f"Starting {label}",
+            run_id=run.run_id,
+            role=role,
+        )
         await self._notify()
 
         if run.run_id in self._cancelled_runs:
@@ -236,11 +248,51 @@ class AgentPool:
         ) -> None:
             detail = args.get("path") or args.get("command") or tool_name
             self.state.update_run(run_id, last_tool=f"{tool_name} {detail}")
-            self.state.append_log(
-                f"{tool_name} {detail}",
-                run_id=run_id,
-                role=role,
-            )
+            if tool_name == "execute_command":
+                command = str(args.get("command", ""))
+                cwd = args.get("cwd")
+                self.state.append_log(
+                    format_command_started(command, cwd=str(cwd) if cwd else None),
+                    run_id=run_id,
+                    role=role,
+                )
+                payload = parse_tool_result(result)
+                if payload.get("ok"):
+                    summary = format_command_finished(
+                        exit_code=payload.get("exit_code", "?"),
+                        stdout=str(payload.get("stdout", "")),
+                        stderr=str(payload.get("stderr", "")),
+                    )
+                    self.state.append_log(
+                        f"  {summary}",
+                        run_id=run_id,
+                        role=role,
+                    )
+                elif payload.get("error"):
+                    self.state.append_log(
+                        f"  error: {payload['error']}",
+                        level="error",
+                        run_id=run_id,
+                        role=role,
+                    )
+            elif tool_name == "run_benchmarks":
+                payload = parse_tool_result(result)
+                summary = str(payload.get("summary", "")).strip()
+                first = truncate_line(first_non_empty_line(summary))
+                message = "run_benchmarks"
+                if first:
+                    message = f"{message} — {first}"
+                self.state.append_log(
+                    message,
+                    run_id=run_id,
+                    role=role,
+                )
+            else:
+                self.state.append_log(
+                    f"{tool_name} {detail}",
+                    run_id=run_id,
+                    role=role,
+                )
             await self._notify()
 
         try:
@@ -256,7 +308,11 @@ class AgentPool:
                 set_fix_test_mode(False)
 
         if turn.success:
-            self.state.append_log(turn.summary, run_id=run_id, role=role)
+            self.state.append_log(
+                f"Finished: {truncate_line(turn.summary)}",
+                run_id=run_id,
+                role=role,
+            )
         else:
             self.state.append_log(
                 f"failed: {turn.error or turn.summary}",

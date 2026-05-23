@@ -89,6 +89,8 @@ class MigrationExecutor:
                 ),
                 MigrationExecutor._write_file_schema(PREFIX_MEASUREMENTS),
                 MigrationExecutor._execute_command_schema(),
+                MigrationExecutor._get_api_signatures_schema(),
+                MigrationExecutor._run_benchmarks_schema(),
             ]
         tools = MigrationExecutor.tool_schemas()
         if agent_id in ("analyzer", "py_tester"):
@@ -183,6 +185,37 @@ class MigrationExecutor:
         }
 
     @staticmethod
+    def _run_benchmarks_schema() -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": "run_benchmarks",
+                "description": (
+                    "Run the deterministic Python vs Rust benchmark pipeline. "
+                    "Builds wheels, verifies correctness, times each case, "
+                    "and writes CSV/TXT/graph reports under measurements/."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "quick": {
+                            "type": "boolean",
+                            "description": "Use 10 iterations instead of 100+.",
+                        },
+                        "iterations": {
+                            "type": "integer",
+                            "description": "Timed iterations per case (overrides quick).",
+                        },
+                        "warmup": {
+                            "type": "integer",
+                            "description": "Warmup runs before timing (default 5).",
+                        },
+                    },
+                },
+            },
+        }
+
+    @staticmethod
     def _get_api_signatures_schema() -> dict[str, Any]:
         return {
             "type": "function",
@@ -227,7 +260,8 @@ class MigrationExecutor:
                 user_path = arguments["path"]
                 await self._acquire_write_lock(user_path)
                 try:
-                    return json.dumps(self._write_file(arguments))
+                    payload = await asyncio.to_thread(self._write_file, arguments)
+                    return json.dumps(payload)
                 finally:
                     self._release_write_lock(user_path)
             if name == "execute_command":
@@ -247,7 +281,13 @@ class MigrationExecutor:
                 )
                 return json.dumps({"ok": True, **result})
             if name == "get_api_signatures":
-                return json.dumps(self._get_api_signatures(arguments))
+                payload = await asyncio.to_thread(
+                    self._get_api_signatures, arguments
+                )
+                return json.dumps(payload)
+            if name == "run_benchmarks":
+                payload = await asyncio.to_thread(self._run_benchmarks, arguments)
+                return json.dumps(payload)
             return json.dumps({"ok": False, "error": f"Unknown tool: {name}"})
         except (
             PathSecurityError,
@@ -306,6 +346,26 @@ class MigrationExecutor:
             refresh=arguments.get("refresh", False),
         )
         return {"ok": True, **result_to_dict(result)}
+
+    def _run_benchmarks(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        from benchmark.config import BenchmarkConfig
+        from benchmark.runner import run_benchmarks
+
+        quick = bool(arguments.get("quick", False))
+        iterations = arguments.get("iterations")
+        warmup = arguments.get("warmup", 5)
+        config = BenchmarkConfig(
+            iterations=int(iterations) if iterations is not None else 100,
+            warmup=int(warmup),
+            quick=quick and iterations is None,
+        )
+        result = run_benchmarks(self.layout, config=config)
+        return {
+            "ok": True,
+            "success": result.success,
+            "summary": result.summary,
+            "output_dir": str(result.output_dir),
+        }
 
     def _normalize_lock_key(self, user_path: str) -> str:
         return user_path.strip().replace("\\", "/")

@@ -14,16 +14,14 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Static
 
-from llm.discovery import verify_model_choice
 from llm.errors import LLMConfigurationError
 from llm.providers import ModelChoice
-from orchestrator.controller import OrchestratorController
-from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout
 from orchestrator.model_select import ModelSelectScreen
 from orchestrator.models import AgentId, AgentStatus, WorkflowStep
 from orchestrator.progress import ProgressSnapshot
 from orchestrator.state import OrchestratorState
+from orchestrator.worker_runtime import OrchestratorWorkerRuntime
 from orchestrator.widgets.pipeline_strip import PipelineStrip
 
 _STATUS_STYLE = {
@@ -65,7 +63,7 @@ class MigratorApp(App[None]):
         self._workspace = workspace
         self._model_choice = model_choice
         self._state = OrchestratorState(workspace=workspace)
-        self._controller: OrchestratorController | None = None
+        self._runtime: OrchestratorWorkerRuntime | None = None
         self._log_count = 0
         self._llm_ready = model_choice is not None
         self._run_row_keys: list[str] = []
@@ -141,7 +139,35 @@ class MigratorApp(App[None]):
         runs_table.add_column("Detail", key="detail")
 
         self._refresh_ui()
+        self._runtime = OrchestratorWorkerRuntime(
+            self._state,
+            on_change=self._schedule_state_refresh,
+        )
+        self._runtime.start()
         self._startup_work()
+
+    def _schedule_state_refresh(self) -> None:
+        self.call_from_thread(self._bump_state_version)
+
+    def _bump_state_version(self) -> None:
+        self.state_version += 1
+
+    def _cleanup(self) -> None:
+        if getattr(self, "_cleaned_up", False):
+            return
+        self._cleaned_up = True
+        self._state.request_cancel()
+        if self._runtime is not None:
+            self._runtime.shutdown(timeout=3)
+            self._runtime = None
+
+    def action_quit(self) -> None:
+        self._state.append_log("Shutting down orchestrator…")
+        self._cleanup()
+        self.exit(0)
+
+    def on_unmount(self) -> None:
+        self._cleanup()
 
     @work(exclusive=True)
     async def _startup_work(self) -> None:
@@ -156,32 +182,57 @@ class MigratorApp(App[None]):
                 self._model_choice = choice
             await self._init_controller(self._model_choice)
             self._llm_ready = True
-            self.state_version += 1
+            self._bump_state_version()
+            await self._maybe_auto_resume()
         except LLMConfigurationError as exc:
             self._state.append_log(str(exc), level="error")
             self.notify(str(exc), severity="error", timeout=12)
-            self.state_version += 1
+            self._bump_state_version()
 
     async def _init_controller(self, choice: ModelChoice) -> None:
-        layout = MigrationLayout.from_source_project(self._workspace)
-        executor = MigrationExecutor(layout)
-        llm = await verify_model_choice(choice, executor)
-        self._state.llm_display = llm.display_name()
-        self._controller = OrchestratorController(
-            self._state,
-            llm,
-            on_change=self._on_state_change,
-            layout=layout,
-            provider_id=choice.provider_id,
-        )
-        self._detected_progress = self._controller.detect_progress()
+        runtime = self._require_runtime()
+        self._detected_progress = await runtime.init_controller(choice)
         if self._detected_progress.is_resumable:
             self._state.append_log(
                 f"Detected progress: {self._detected_progress.display_label()}"
             )
+            if not self._detected_progress.awaiting_human:
+                self._state.append_log(
+                    "Will auto-resume after LLM setup (or press r). "
+                    "Step 6 benchmarks can take several minutes."
+                )
 
-    async def _on_state_change(self, _state: OrchestratorState) -> None:
-        self.state_version += 1
+    async def _maybe_auto_resume(self) -> None:
+        if self._default_force_fresh:
+            self._state.append_log("Fresh start mode — press R to begin from step 1")
+            self._bump_state_version()
+            return
+        if (
+            self._detected_progress is None
+            or not self._detected_progress.is_resumable
+        ):
+            return
+        if self._detected_progress.awaiting_human:
+            self._state.append_log(
+                "Checkpoint is waiting for your review — press a or s"
+            )
+            self._bump_state_version()
+            return
+        if self._state.running:
+            return
+        self._state.append_log(
+            f"Auto-resuming: {self._detected_progress.display_label()}"
+        )
+        self._bump_state_version()
+        try:
+            runtime = self._require_ready_runtime()
+            await runtime.start_migration()
+            if runtime.controller is not None:
+                self._detected_progress = runtime.detect_progress()
+        except (LLMConfigurationError, RuntimeError) as exc:
+            self.notify(str(exc), severity="error", timeout=12)
+            self._state.append_log(str(exc), level="error")
+        self._bump_state_version()
 
     def watch_state_version(self, _version: int) -> None:
         self._append_new_logs()
@@ -441,26 +492,34 @@ class MigratorApp(App[None]):
 
     def action_toggle_compact(self) -> None:
         self._state.compact_ui = not self._state.compact_ui
-        self.state_version += 1
+        self._bump_state_version()
 
     def action_cancel_runs(self) -> None:
-        if self._controller is None:
+        runtime = self._runtime
+        if runtime is None:
             return
-        count = self._controller.cancel_active_runs()
+        count = runtime.cancel_active_runs()
         if count:
             self.notify(f"Cancelled {count} active run(s)", severity="warning")
-            self.state_version += 1
+            self._bump_state_version()
         else:
             self.notify("No active runs to cancel", severity="information")
 
-    def _require_controller(self) -> OrchestratorController:
-        if not self._llm_ready or self._controller is None:
+    def _require_runtime(self) -> OrchestratorWorkerRuntime:
+        if self._runtime is None:
+            raise RuntimeError("Orchestrator worker not started")
+        return self._runtime
+
+    def _require_ready_runtime(self) -> OrchestratorWorkerRuntime:
+        if not self._llm_ready:
             raise RuntimeError("Controller not initialized")
-        return self._controller
+        return self._require_runtime()
 
     def _resume_workflow(self) -> None:
         if self._state.running and not self._state.awaiting_human:
-            self._require_controller().resume()
+            runtime = self._runtime
+            if runtime is not None:
+                runtime.resume()
 
     @on(Button.Pressed, "#btn-approve")
     def on_approve_pressed(self) -> None:
@@ -482,7 +541,7 @@ class MigratorApp(App[None]):
 
     @work(exclusive=True)
     async def _approve_work(self) -> None:
-        if await self._require_controller().approve_review():
+        if await self._require_ready_runtime().approve_review():
             self._resume_workflow()
 
     def action_submit_feedback(self) -> None:
@@ -494,7 +553,7 @@ class MigratorApp(App[None]):
     @work(exclusive=True)
     async def _feedback_work(self) -> None:
         text = self.query_one("#feedback-input", Input).value
-        if await self._require_controller().submit_feedback(text):
+        if await self._require_ready_runtime().submit_feedback(text):
             self.query_one("#feedback-input", Input).value = ""
             self._resume_workflow()
 
@@ -510,13 +569,13 @@ class MigratorApp(App[None]):
     @work(exclusive=True)
     async def _start_work(self, *, force_fresh: bool = False) -> None:
         try:
-            await self._require_controller().start_migration(force_fresh=force_fresh)
-            if self._controller is not None:
-                self._detected_progress = self._controller.detect_progress()
+            runtime = self._require_ready_runtime()
+            await runtime.start_migration(force_fresh=force_fresh)
+            self._detected_progress = runtime.detect_progress()
         except (LLMConfigurationError, RuntimeError) as exc:
             self.notify(str(exc), severity="error", timeout=12)
             self._state.append_log(str(exc), level="error")
-            self.state_version += 1
+            self._bump_state_version()
 
     def action_start_fresh_migration(self) -> None:
         if not self._llm_ready:
@@ -530,12 +589,13 @@ class MigratorApp(App[None]):
     @work(exclusive=True)
     async def _start_fresh_work(self) -> None:
         try:
-            await self._require_controller().start_fresh_migration()
-            self._detected_progress = self._controller.detect_progress() if self._controller else None
+            runtime = self._require_ready_runtime()
+            await runtime.start_fresh_migration()
+            self._detected_progress = runtime.detect_progress()
         except (LLMConfigurationError, RuntimeError) as exc:
             self.notify(str(exc), severity="error", timeout=12)
             self._state.append_log(str(exc), level="error")
-            self.state_version += 1
+            self._bump_state_version()
 
     def action_change_model(self) -> None:
         if self._state.running and not self._state.awaiting_human:
@@ -556,11 +616,11 @@ class MigratorApp(App[None]):
             await self._init_controller(choice)
             self._llm_ready = True
             self.notify(f"Using {self._state.llm_display}", severity="information")
-            self.state_version += 1
+            self._bump_state_version()
         except LLMConfigurationError as exc:
             self.notify(str(exc), severity="error", timeout=12)
             self._state.append_log(str(exc), level="error")
-            self.state_version += 1
+            self._bump_state_version()
 
 
 def main() -> None:
