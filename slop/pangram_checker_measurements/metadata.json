@@ -1,0 +1,23 @@
+{
+  "project": "pangram_checker",
+  "generated_at": "2026-05-23T11:48:37.715579+00:00",
+  "config": {
+    "iterations": 10,
+    "warmup": 5,
+    "quick": true,
+    "python_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/pangram_checker_measurements/.python_build/wheels/pangram_checker_python_bench-0.1.0-py3-none-any.whl",
+    "rust_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/pangram_checker_migration_rust/target/wheels/pangram_checker-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+  },
+  "artifacts": {
+    "python_source_bytes": 527,
+    "python_wheel_bytes": 1557,
+    "python_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/pangram_checker_measurements/.python_build/wheels/pangram_checker_python_bench-0.1.0-py3-none-any.whl",
+    "python_build_seconds": 0.4853499170858413,
+    "rust_wheel_bytes": 214693,
+    "rust_native_extension_bytes": 499920,
+    "rust_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/pangram_checker_migration_rust/target/wheels/pangram_checker-0.1.0-cp312-cp312-macosx_11_0_arm64.whl",
+    "rust_build_seconds": 0.0
+  },
+  "case_count": 4,
+  "sample_count": 80
+}

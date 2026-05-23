@@ -1,0 +1,23 @@
+Performance report: prime_generator
+Generated: 2026-05-23T11:42:50.981342+00:00
+
+Both backends run from installed wheels (Python source wheel vs Rust PyO3 wheel).
+
+Artifacts: Python source 652 B; Python wheel 1.5 KiB (0.47s build); Rust wheel 199.2 KiB (0.00s build); Rust native extension 471.8 KiB.
+
+get_primes_large (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 10.4% vs Rust 4.2%. Mean peak RSS ratio Rust/Python: 1.01×.
+get_primes_large (medium): Rust leads with 1.20× speedup (Python 0.90ms vs Rust 0.74ms). Timing CV Python 35.8% vs Rust 3.7%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_large (large): tie leads with 1.03× speedup (Python 1.07ms vs Rust 1.04ms). Timing CV Python 1.2% vs Rust 1.8%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_large (xlarge): tie leads with 1.01× speedup (Python 3.68ms vs Rust 3.64ms). Timing CV Python 1.3% vs Rust 0.6%. Mean peak RSS ratio Rust/Python: 0.99×.
+get_primes_medium (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 10.4% vs Rust 4.2%. Mean peak RSS ratio Rust/Python: 1.01×.
+get_primes_medium (medium): Rust leads with 1.20× speedup (Python 0.90ms vs Rust 0.74ms). Timing CV Python 35.8% vs Rust 3.7%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_medium (large): tie leads with 1.03× speedup (Python 1.07ms vs Rust 1.04ms). Timing CV Python 1.2% vs Rust 1.8%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_medium (xlarge): tie leads with 1.01× speedup (Python 3.68ms vs Rust 3.64ms). Timing CV Python 1.3% vs Rust 0.6%. Mean peak RSS ratio Rust/Python: 0.99×.
+get_primes_small (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 10.4% vs Rust 4.2%. Mean peak RSS ratio Rust/Python: 1.01×.
+get_primes_small (medium): Rust leads with 1.20× speedup (Python 0.90ms vs Rust 0.74ms). Timing CV Python 35.8% vs Rust 3.7%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_small (large): tie leads with 1.03× speedup (Python 1.07ms vs Rust 1.04ms). Timing CV Python 1.2% vs Rust 1.8%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_small (xlarge): tie leads with 1.01× speedup (Python 3.68ms vs Rust 3.64ms). Timing CV Python 1.3% vs Rust 0.6%. Mean peak RSS ratio Rust/Python: 0.99×.
+get_primes_xlarge (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 10.4% vs Rust 4.2%. Mean peak RSS ratio Rust/Python: 1.01×.
+get_primes_xlarge (medium): Rust leads with 1.20× speedup (Python 0.90ms vs Rust 0.74ms). Timing CV Python 35.8% vs Rust 3.7%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_xlarge (large): tie leads with 1.03× speedup (Python 1.07ms vs Rust 1.04ms). Timing CV Python 1.2% vs Rust 1.8%. Mean peak RSS ratio Rust/Python: 1.00×.
+get_primes_xlarge (xlarge): tie leads with 1.01× speedup (Python 3.68ms vs Rust 3.64ms). Timing CV Python 1.3% vs Rust 0.6%. Mean peak RSS ratio Rust/Python: 0.99×.

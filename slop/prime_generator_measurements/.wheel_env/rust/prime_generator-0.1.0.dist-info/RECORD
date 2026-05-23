@@ -1,0 +1,10 @@
+prime_generator-0.1.0.dist-info/INSTALLER,sha256=5hhM4Q4mYTT9z6QB6PGpUAW81PGNFrYrdXMj4oM_6ak,2
+prime_generator-0.1.0.dist-info/METADATA,sha256=F1Ygp2_xijxf6OhALlEYPLGFzKMK8O4kVsiLSvA5EC0,82
+prime_generator-0.1.0.dist-info/RECORD,,
+prime_generator-0.1.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+prime_generator-0.1.0.dist-info/WHEEL,sha256=EZqPRRNHAs7E6E3YRHgwwkbOV09ItXAcguKsnwQEIMU,105
+prime_generator-0.1.0.dist-info/direct_url.json,sha256=vsePV2MSKzWIusxZpM-x7lS0sasAt-TKQ6H8U7qa90A,190
+prime_generator-0.1.0.dist-info/sboms/prime_generator.cyclonedx.json,sha256=X9KA-SipJ12tR3r7jT0G9mLtgDzW3rGUQsCUXEfsf9k,32525
+prime_generator-0.1.0.dist-info/uv_cache.json,sha256=hre0nZY7NRY_ia94-V_hLiZ2DorNybyNH4MhlFVSvmg,126
+prime_generator/__init__.py,sha256=Y8G8nPLRMo-78doc5tUYTC2DRrsbhXGLa3QuYXLYtcw,143
+prime_generator/prime_generator.cpython-312-darwin.so,sha256=Z2jprn-5if_6oWEsgXRNkEc2G0g4T2hb73TAULv_ea0,483072

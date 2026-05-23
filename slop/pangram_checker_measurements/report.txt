@@ -1,0 +1,23 @@
+Performance report: pangram_checker
+Generated: 2026-05-23T11:48:37.334138+00:00
+
+Both backends run from installed wheels (Python source wheel vs Rust PyO3 wheel).
+
+Artifacts: Python source 527 B; Python wheel 1.5 KiB (0.49s build); Rust wheel 209.7 KiB (0.00s build); Rust native extension 488.2 KiB.
+
+is_pangram_large (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 15.1% vs Rust 4.6%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_large (medium): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.7% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_large (large): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.2% vs Rust 1.2%. Mean peak RSS ratio Rust/Python: 1.00×.
+is_pangram_large (xlarge): tie leads with 1.03× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 1.6% vs Rust 2.3%. Mean peak RSS ratio Rust/Python: 1.00×.
+is_pangram_medium (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 15.1% vs Rust 4.6%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_medium (medium): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.7% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_medium (large): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.2% vs Rust 1.2%. Mean peak RSS ratio Rust/Python: 1.00×.
+is_pangram_medium (xlarge): tie leads with 1.03× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 1.6% vs Rust 2.3%. Mean peak RSS ratio Rust/Python: 1.00×.
+is_pangram_small (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 15.1% vs Rust 4.6%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_small (medium): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.7% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_small (large): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.2% vs Rust 1.2%. Mean peak RSS ratio Rust/Python: 1.00×.
+is_pangram_small (xlarge): tie leads with 1.03× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 1.6% vs Rust 2.3%. Mean peak RSS ratio Rust/Python: 1.00×.
+is_pangram_xlarge (small): Rust leads with 1.08× speedup (Python 0.82ms vs Rust 0.76ms). Timing CV Python 15.1% vs Rust 4.6%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_xlarge (medium): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.7% vs Rust 2.9%. Mean peak RSS ratio Rust/Python: 1.01×.
+is_pangram_xlarge (large): tie leads with 1.04× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 3.2% vs Rust 1.2%. Mean peak RSS ratio Rust/Python: 1.00×.
+is_pangram_xlarge (xlarge): tie leads with 1.03× speedup (Python 0.78ms vs Rust 0.75ms). Timing CV Python 1.6% vs Rust 2.3%. Mean peak RSS ratio Rust/Python: 1.00×.

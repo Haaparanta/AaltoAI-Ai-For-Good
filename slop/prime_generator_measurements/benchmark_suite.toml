@@ -1,0 +1,31 @@
+[[cases]]
+name = "get_primes_small"
+module = "prime_generator"
+function = "get_primes"
+input_size_tier = "small"
+args_json = "[10]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "get_primes_medium"
+module = "prime_generator"
+function = "get_primes"
+input_size_tier = "medium"
+args_json = "[1000]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "get_primes_large"
+module = "prime_generator"
+function = "get_primes"
+input_size_tier = "large"
+args_json = "[100000]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "get_primes_xlarge"
+module = "prime_generator"
+function = "get_primes"
+input_size_tier = "xlarge"
+args_json = "[1000000]"
+kwargs_json = "{}"

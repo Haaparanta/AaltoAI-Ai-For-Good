@@ -1,0 +1,23 @@
+{
+  "project": "prime_generator",
+  "generated_at": "2026-05-23T11:42:51.385103+00:00",
+  "config": {
+    "iterations": 10,
+    "warmup": 5,
+    "quick": true,
+    "python_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/prime_generator_measurements/.python_build/wheels/prime_generator_python_bench-0.1.0-py3-none-any.whl",
+    "rust_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/prime_generator_migration_rust/target/wheels/prime_generator-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+  },
+  "artifacts": {
+    "python_source_bytes": 652,
+    "python_wheel_bytes": 1560,
+    "python_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/prime_generator_measurements/.python_build/wheels/prime_generator_python_bench-0.1.0-py3-none-any.whl",
+    "python_build_seconds": 0.4651894171256572,
+    "rust_wheel_bytes": 203966,
+    "rust_native_extension_bytes": 483072,
+    "rust_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/prime_generator_migration_rust/target/wheels/prime_generator-0.1.0-cp312-cp312-macosx_11_0_arm64.whl",
+    "rust_build_seconds": 0.0
+  },
+  "case_count": 4,
+  "sample_count": 80
+}

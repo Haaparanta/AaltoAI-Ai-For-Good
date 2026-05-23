@@ -1,0 +1,10 @@
+pangram_checker-0.1.0.dist-info/INSTALLER,sha256=5hhM4Q4mYTT9z6QB6PGpUAW81PGNFrYrdXMj4oM_6ak,2
+pangram_checker-0.1.0.dist-info/METADATA,sha256=mMuj3ETMLwuXxCJN38DVd0GXhKug3_Rjxv3bDcDdmzs,82
+pangram_checker-0.1.0.dist-info/RECORD,,
+pangram_checker-0.1.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+pangram_checker-0.1.0.dist-info/WHEEL,sha256=EZqPRRNHAs7E6E3YRHgwwkbOV09ItXAcguKsnwQEIMU,105
+pangram_checker-0.1.0.dist-info/direct_url.json,sha256=FyDga1bj0gqYWS00vZGpAxNk7KoyuPfwviocxNsmjgs,190
+pangram_checker-0.1.0.dist-info/sboms/pangram_checker.cyclonedx.json,sha256=80M6QNuJjrTMhE_SBih5wZx97rNA3-HCYgpBcH9SePY,32525
+pangram_checker-0.1.0.dist-info/uv_cache.json,sha256=kepg9nNnMIWTR752ZbnwYjxqLDRJ4cI4BZekYKiqxw4,127
+pangram_checker/__init__.py,sha256=eDqXzil7OAZbQQhOL9QKqYZlK6lMFkEZRqKVcLsp0do,143
+pangram_checker/pangram_checker.cpython-312-darwin.so,sha256=sXC00ye3BJGWAeJ9ZuPSQC8qOHHY_9bga0RFKna_G54,499920
