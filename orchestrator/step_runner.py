@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -20,7 +21,14 @@ from agents.runner import (
 from executor_mcp.python_test_quality import lint_tree, tree_lint_output
 from executor_mcp.rust_wheel import build_and_install_wheel
 from llm.types import LLMClient
+from orchestrator.activity_log import (
+    first_non_empty_line,
+    format_command_finished,
+    format_command_started,
+    truncate_line,
+)
 from orchestrator.agent_pool import AgentPool, AgentRunSpec
+from orchestrator.async_workers import run_sync_daemon
 from orchestrator.config import max_agent_concurrency
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST
@@ -50,6 +58,7 @@ class StepRunner:
         llm: LLMClient,
         *,
         on_notify: StateNotify | None = None,
+        on_ui_refresh: Callable[[], None] | None = None,
         pool: AgentPool | None = None,
         provider_id: str | None = None,
     ) -> None:
@@ -57,8 +66,10 @@ class StepRunner:
         self._executor = executor
         self._llm = llm
         self._on_notify = on_notify
+        self._on_ui_refresh = on_ui_refresh
         concurrency = max_agent_concurrency(provider_id)
         self.state.max_concurrency = concurrency
+        self._notify_loop: asyncio.AbstractEventLoop | None = None
         self._pool = pool or AgentPool(
             state,
             executor,
@@ -72,11 +83,21 @@ class StepRunner:
             executor._on_lock_acquired = self._pool.on_write_lock_acquired
 
     async def _notify(self) -> None:
+        self._notify_loop = asyncio.get_running_loop()
         if self._on_notify is None:
             return
         result = self._on_notify()
         if result is not None:
             await result
+
+    def _log_progress(self, message: str) -> None:
+        self.state.append_log(message)
+        if self._on_ui_refresh is not None:
+            self._on_ui_refresh()
+            return
+        if self._on_notify is None or self._notify_loop is None:
+            return
+        asyncio.run_coroutine_threadsafe(self._notify(), self._notify_loop)
 
     async def run(self, step: WorkflowStep) -> StepRunResult:
         if step == WorkflowStep.RUN_TESTS:
@@ -97,7 +118,12 @@ class StepRunner:
                 return quality_result
         return result
 
-    async def _run_agents(self, step: WorkflowStep) -> StepRunResult:
+    async def _run_agents(
+        self,
+        step: WorkflowStep,
+        *,
+        benchmark_context: str = "",
+    ) -> StepRunResult:
         feedback = self.state.last_user_feedback
         summaries: list[str] = []
         stage_index = 0
@@ -109,8 +135,17 @@ class StepRunner:
                 step=step,
                 layout=layout,
                 feedback=feedback if stage_index == 0 else "",
+                benchmark_context=benchmark_context if stage_index == 0 else "",
             )
             parallel = len(specs) > 1 and stage.policy == ParallelPolicy.FAN_OUT
+            agent_names = ", ".join(
+                spec.label or get_spec(spec.agent_key).display_name for spec in specs
+            )
+            mode = "parallel" if parallel else "sequential"
+            self.state.append_log(
+                f"Orchestrator: stage {stage_index + 1} — {agent_names} ({mode})"
+            )
+            await self._notify()
             results = await self._pool.run_batch_with_retry(
                 specs,
                 step=step,
@@ -124,6 +159,10 @@ class StepRunner:
                         allow_advance=False,
                     )
                 summaries.append(result.summary)
+            self.state.append_log(
+                f"Orchestrator: stage {stage_index + 1} complete — {agent_names}"
+            )
+            await self._notify()
             stage_index += 1
 
         self.state.last_agent_summary = " ".join(summaries)
@@ -136,6 +175,7 @@ class StepRunner:
         step: WorkflowStep,
         layout: MigrationLayout,
         feedback: str,
+        benchmark_context: str = "",
     ) -> list[AgentRunSpec]:
         if len(stage.agents) != 1 or stage.policy != ParallelPolicy.FAN_OUT:
             specs: list[AgentRunSpec] = []
@@ -150,6 +190,9 @@ class StepRunner:
                         step=step,
                         layout=layout,
                         feedback=feedback if agent_index == 0 else "",
+                        benchmark_context=(
+                            benchmark_context if agent_index == 0 else ""
+                        ),
                     )
                 )
             return specs
@@ -162,6 +205,7 @@ class StepRunner:
                 step=step,
                 layout=layout,
                 feedback=feedback if index == 0 else "",
+                benchmark_context=benchmark_context if index == 0 else "",
             )
             for index, shard in enumerate(shards)
         ]
@@ -173,6 +217,7 @@ class StepRunner:
         step: WorkflowStep,
         layout: MigrationLayout,
         feedback: str,
+        benchmark_context: str = "",
     ) -> AgentRunSpec:
         user_message = build_user_message(
             step,
@@ -180,6 +225,7 @@ class StepRunner:
             agent_id=shard.agent_key,
             feedback=feedback,
             scope=shard.scope,
+            benchmark_context=benchmark_context,
         )
         return AgentRunSpec(
             agent_key=shard.agent_key,
@@ -207,15 +253,25 @@ class StepRunner:
 
         layout = self._layout()
         layout.ensure_scaffold()
-        lint_result = lint_tree(
+        self.state.append_log("Orchestrator: running flake8/mypy on Python tests")
+        await self._notify()
+        lint_result = await asyncio.to_thread(
+            lint_tree,
             layout.py_tests_root,
             source_root=layout.source_root,
         )
         if lint_result.lint_passed:
             self.state.last_agent_summary = "Python test lint passed (flake8, mypy)."
+            self.state.append_log("Orchestrator: flake8/mypy passed")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         output = tree_lint_output(lint_result)
+        first_issue = truncate_line(first_non_empty_line(output))
+        if first_issue:
+            self.state.append_log(
+                f"Orchestrator: flake8/mypy failed — {first_issue}",
+                level="error",
+            )
         self.state.append_log(
             "Orchestrator: flake8/mypy failed — dispatching Py Tester to fix Python tests"
         )
@@ -226,12 +282,14 @@ class StepRunner:
             failure_label="flake8/mypy",
             message_phase="lint_fix",
         )
-        lint_result2 = lint_tree(
+        lint_result2 = await asyncio.to_thread(
+            lint_tree,
             layout.py_tests_root,
             source_root=layout.source_root,
         )
         if lint_result2.lint_passed:
             self.state.last_agent_summary = "Python test lint passed after fix."
+            self.state.append_log("Orchestrator: flake8/mypy passed after fix")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.last_agent_summary = (
@@ -247,9 +305,12 @@ class StepRunner:
         if not self._workspace_has_pytest_files():
             return StepRunResult(success=True, summary="No Python tests to verify.")
 
+        self.state.append_log("Orchestrator: running pytest baseline")
+        await self._notify()
         exit_code, output = await self._execute_pytest(baseline=True)
         if exit_code == 0:
             self.state.last_agent_summary = "Python baseline tests passed (pytest)."
+            self.state.append_log("Orchestrator: pytest baseline passed")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.append_log(
@@ -265,6 +326,7 @@ class StepRunner:
         exit_code2, _output2 = await self._execute_pytest(baseline=True)
         if exit_code2 == 0:
             self.state.last_agent_summary = "Python tests passed after fix."
+            self.state.append_log("Orchestrator: pytest baseline passed after fix")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.last_agent_summary = (
@@ -277,36 +339,117 @@ class StepRunner:
         )
 
     async def _run_benchmarks(self) -> StepRunResult:
+        from benchmark.cases import generate_cases
         from benchmark.config import BenchmarkConfig
         from benchmark.runner import run_benchmarks
 
         layout = self._layout()
+        layout.ensure_scaffold()
+
         self.state.set_agent(
             AgentId.BENCHMARKER, AgentStatus.RUNNING, detail="benchmarking"
         )
         await self._notify()
-        self.state.append_log("Benchmarker: measuring Python vs Rust performance")
-
-        result = run_benchmarks(layout, config=BenchmarkConfig(quick=False))
-
-        if result.success:
-            self.state.set_agent(
-                AgentId.BENCHMARKER, AgentStatus.COMPLETED, detail="Reports written"
-            )
-            self.state.last_agent_summary = result.summary
-            await self._notify()
-            return StepRunResult(success=True, summary=result.summary)
-
-        self.state.set_agent(
-            AgentId.BENCHMARKER, AgentStatus.ERROR, detail="Benchmark failed"
-        )
-        self.state.last_agent_summary = result.summary
+        self.state.append_log("Benchmarker: step 6 — measuring Python vs Rust performance")
+        self.state.append_log("Benchmarker: scanning for benchmark cases")
         await self._notify()
-        return StepRunResult(
-            success=False,
-            summary=result.summary,
-            allow_advance=False,
+
+        cases = generate_cases(layout.source_root, layout=layout)
+        if cases:
+            case_names = ", ".join(case.name for case in cases[:5])
+            if len(cases) > 5:
+                case_names += f", … (+{len(cases) - 5} more)"
+            self.state.append_log(
+                f"Benchmarker: found {len(cases)} case(s) — {case_names}"
+            )
+        else:
+            self.state.append_log(
+                "Benchmarker: no auto-discovered cases; will ask LLM to author suite"
+            )
+        await self._notify()
+
+        config = BenchmarkConfig(quick=False)
+        iterations = config.effective_iterations()
+        self.state.append_log(
+            f"Benchmarker: plan — {iterations} timed run(s) per case, "
+            f"{config.warmup} warmup(s) (this can take several minutes)"
         )
+        await self._notify()
+
+        benchmark_context = ""
+        if cases:
+            self.state.append_log("Benchmarker: starting automated benchmark pipeline")
+            await self._notify()
+            result = await run_sync_daemon(
+                run_benchmarks,
+                layout,
+                config=config,
+                cases=cases,
+                on_progress=self._log_progress,
+                cancel_event=self.state.cancel_event,
+            )
+            if self.state.cancel_requested():
+                self.state.set_agent(
+                    AgentId.BENCHMARKER, AgentStatus.IDLE, detail="Cancelled"
+                )
+                await self._notify()
+                return StepRunResult(
+                    success=False,
+                    summary="Benchmark cancelled.",
+                    allow_advance=False,
+                )
+            if result.success:
+                self.state.set_agent(
+                    AgentId.BENCHMARKER,
+                    AgentStatus.COMPLETED,
+                    detail="Reports written",
+                )
+                self.state.last_agent_summary = result.summary
+                first = truncate_line(first_non_empty_line(result.summary))
+                if first:
+                    self.state.append_log(f"Benchmarker: complete — {first}")
+                else:
+                    self.state.append_log("Benchmarker: complete")
+                await self._notify()
+                return StepRunResult(success=True, summary=result.summary)
+            first = truncate_line(first_non_empty_line(result.summary))
+            if first:
+                self.state.append_log(
+                    f"Benchmarker: auto-run failed — {first}",
+                    level="error",
+                )
+            benchmark_context = result.summary
+        else:
+            benchmark_context = (
+                "No benchmark cases could be discovered automatically."
+            )
+
+        self.state.append_log(
+            "Benchmarker: invoking LLM to author suite and run measurements"
+        )
+        self.state.set_agent(
+            AgentId.BENCHMARKER, AgentStatus.RUNNING, detail="authoring suite"
+        )
+        await self._notify()
+
+        agent_result = await self._run_agents(
+            WorkflowStep.MEASURE_PERFORMANCE,
+            benchmark_context=benchmark_context,
+        )
+        if agent_result.success:
+            self.state.set_agent(
+                AgentId.BENCHMARKER,
+                AgentStatus.COMPLETED,
+                detail="Reports written",
+            )
+        else:
+            self.state.set_agent(
+                AgentId.BENCHMARKER,
+                AgentStatus.ERROR,
+                detail="Benchmark failed",
+            )
+        await self._notify()
+        return agent_result
 
     async def _run_migration_tests(self) -> StepRunResult:
         if not self._workspace_has_pytest_files():
@@ -317,14 +460,26 @@ class StepRunner:
 
         self.state.set_agent(AgentId.EXECUTOR, AgentStatus.RUNNING, detail="maturin build")
         await self._notify()
+        build_cmd = "python -m maturin build --release"
+        self.state.append_log(
+            format_command_started(build_cmd, cwd=PREFIX_RUST)
+        )
         self.state.append_log("Executor: building and installing Rust wheel")
-        wheel_ok, wheel_output = build_and_install_wheel(layout.rust_root)
+        await self._notify()
+        wheel_ok, wheel_output = await asyncio.to_thread(
+            build_and_install_wheel, layout.rust_root
+        )
+        first_line = truncate_line(first_non_empty_line(wheel_output))
+        if first_line:
+            self.state.append_log(f"  {first_line}")
         if wheel_output.strip():
-            for line in wheel_output.strip().splitlines()[-15:]:
-                self.state.append_log(f"  {line}")
+            for line in wheel_output.strip().splitlines()[-5:]:
+                if line.strip() and line.strip() != first_line:
+                    self.state.append_log(f"  {line}")
         if not wheel_ok:
             self.state.set_agent(AgentId.EXECUTOR, AgentStatus.ERROR, detail="Wheel build failed")
             self.state.last_agent_summary = wheel_output[-_MAX_OUTPUT:] or "Wheel build failed"
+            self.state.append_log("Executor: wheel build failed", level="error")
             await self._notify()
             return StepRunResult(
                 success=False,
@@ -332,12 +487,15 @@ class StepRunner:
                 allow_advance=False,
             )
 
+        self.state.append_log("Executor: wheel installed — running migration pytest")
+        await self._notify()
         exit_code, output = await self._execute_pytest(baseline=False)
         if exit_code == 0:
             self.state.set_agent(
                 AgentId.EXECUTOR, AgentStatus.COMPLETED, detail="Tests passed"
             )
             self.state.last_agent_summary = "Migration pytest passed against installed wheel."
+            self.state.append_log("Orchestrator: migration pytest passed")
             await self._notify()
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
@@ -371,7 +529,13 @@ class StepRunner:
                 failure_label="migration pytest",
                 parallel=False,
             )
-            wheel_ok, wheel_output = build_and_install_wheel(layout.rust_root)
+            wheel_ok, wheel_output = await asyncio.to_thread(
+                build_and_install_wheel, layout.rust_root
+            )
+            if wheel_ok:
+                first_line = truncate_line(first_non_empty_line(wheel_output))
+                if first_line:
+                    self.state.append_log(f"  {first_line}")
             if not wheel_ok:
                 current_output = wheel_output
                 break
@@ -386,6 +550,7 @@ class StepRunner:
                 AgentId.EXECUTOR, AgentStatus.COMPLETED, detail="Tests passed"
             )
             self.state.last_agent_summary = "Migration pytest passed after fix."
+            self.state.append_log("Orchestrator: migration pytest passed after fix")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.append_log(
@@ -426,24 +591,52 @@ class StepRunner:
             if baseline
             else {"PYTHONPATH": ""}
         )
+        command = "pytest -q"
+        self.state.append_log(
+            format_command_started(command, cwd=PREFIX_PY_TESTS)
+        )
+        await self._notify()
         raw = await self._executor.call_tool(
             "execute_command",
-            {"command": "pytest -q", "cwd": PREFIX_PY_TESTS, "env": env},
+            {"command": command, "cwd": PREFIX_PY_TESTS, "env": env},
         )
-        return self._parse_command_output(raw, label=label)
+        return self._parse_command_output(
+            raw, label=label, command=command, cwd=PREFIX_PY_TESTS
+        )
 
-    def _parse_command_output(self, raw: str, *, label: str) -> tuple[int, str]:
+    def _parse_command_output(
+        self,
+        raw: str,
+        *,
+        label: str,
+        command: str | None = None,
+        cwd: str | None = None,
+    ) -> tuple[int, str]:
         payload = json.loads(raw)
         exit_code = payload.get("exit_code", -1)
         stdout = payload.get("stdout", "")
         stderr = payload.get("stderr", "")
-        self.state.append_log(f"Executor: {label} (exit {exit_code})")
-        if stdout.strip():
-            for line in stdout.strip().splitlines()[-15:]:
-                self.state.append_log(f"  {line}")
-        if stderr.strip():
-            for line in stderr.strip().splitlines()[-10:]:
-                self.state.append_log(f"  stderr: {line}")
+        if command:
+            self.state.append_log(
+                f"  {format_command_finished(
+                    exit_code=exit_code,
+                    stdout=stdout,
+                    stderr=stderr,
+                )}"
+            )
+        else:
+            first = truncate_line(first_non_empty_line(stdout, stderr))
+            if first:
+                self.state.append_log(f"Executor: {label} exit {exit_code} — {first}")
+            else:
+                self.state.append_log(f"Executor: {label} exit {exit_code}")
+        if exit_code != 0:
+            if stdout.strip():
+                for line in stdout.strip().splitlines()[-8:]:
+                    self.state.append_log(f"  {line}")
+            if stderr.strip():
+                for line in stderr.strip().splitlines()[-5:]:
+                    self.state.append_log(f"  stderr: {line}")
         output = f"{stdout}\n{stderr}".strip()
         return exit_code, output
 
@@ -491,6 +684,10 @@ class StepRunner:
 
     async def run_reviewer(self, review_step: WorkflowStep) -> str:
         """Run the Reviewer agent before a human review gate."""
+        self.state.append_log(
+            f"Orchestrator: running reviewer — {review_step.label}"
+        )
+        await self._notify()
         user_message = build_user_message(
             review_step,
             layout=self._layout(),
@@ -526,6 +723,8 @@ class StepRunner:
         if not cargo_toml.is_file():
             return StepRunResult(success=True, summary="No Rust crate to quality-check.")
 
+        self.state.append_log("Orchestrator: running cargo fmt/clippy")
+        await self._notify()
         exit_code, output = await self._execute_rust_quality_checks()
         if exit_code == 0:
             self.state.last_agent_summary = (
@@ -533,6 +732,7 @@ class StepRunner:
                 if self.state.last_agent_summary
                 else "Rust quality checks passed (fmt, clippy)."
             )
+            self.state.append_log("Orchestrator: cargo fmt/clippy passed")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.append_log(
@@ -548,6 +748,7 @@ class StepRunner:
         exit_code2, _output2 = await self._execute_rust_quality_checks()
         if exit_code2 == 0:
             self.state.last_agent_summary = "Rust quality checks passed after fix."
+            self.state.append_log("Orchestrator: cargo fmt/clippy passed after fix")
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.last_agent_summary = (
@@ -570,11 +771,17 @@ class StepRunner:
             ("cargo fmt --check", "cargo fmt --check"),
             ("cargo clippy -- -D warnings", "cargo clippy"),
         ):
+            self.state.append_log(
+                format_command_started(command, cwd=PREFIX_RUST)
+            )
+            await self._notify()
             raw = await self._executor.call_tool(
                 "execute_command",
                 {"command": command, "cwd": PREFIX_RUST},
             )
-            exit_code, output = self._parse_command_output(raw, label=label)
+            exit_code, output = self._parse_command_output(
+                raw, label=label, command=command, cwd=PREFIX_RUST
+            )
             combined_output.append(output)
             if exit_code != 0:
                 last_exit = exit_code

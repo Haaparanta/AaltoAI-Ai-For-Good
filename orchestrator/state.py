@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -50,6 +51,24 @@ class OrchestratorState:
     compact_ui: bool = False
     max_concurrency: int = 4
     _instance_counters: dict[AgentId, int] = field(default_factory=dict)
+    _cancel_event: threading.Event = field(
+        default_factory=threading.Event,
+        repr=False,
+        compare=False,
+    )
+
+    def request_cancel(self) -> None:
+        self._cancel_event.set()
+
+    def clear_cancel(self) -> None:
+        self._cancel_event.clear()
+
+    def cancel_requested(self) -> bool:
+        return self._cancel_event.is_set()
+
+    @property
+    def cancel_event(self) -> threading.Event:
+        return self._cancel_event
 
     def __post_init__(self) -> None:
         if not self.agents:

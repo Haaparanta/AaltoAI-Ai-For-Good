@@ -11,6 +11,7 @@ from executor_mcp.paths import WORKSPACE_ROOT_ENV
 from llm.errors import LLMConfigurationError
 from llm.openai_client import OpenAIClient
 from llm.types import LLMClient
+from orchestrator.activity_log import truncate_line
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout
 from orchestrator.progress import (
@@ -78,10 +79,18 @@ class OrchestratorController:
             self._executor,
             self._llm,
             on_notify=self._notify,
+            on_ui_refresh=self._refresh_ui_sync,
             provider_id=provider_id,
         )
         if isinstance(llm, OpenAIClient):
             state.llm_display = llm.display_name()
+
+    def _refresh_ui_sync(self) -> None:
+        if self._on_change is None:
+            return
+        result = self._on_change(self.state)
+        if asyncio.iscoroutine(result):
+            pass
 
     async def _notify(self) -> None:
         if self._on_change is None:
@@ -110,6 +119,8 @@ class OrchestratorController:
         )
 
     async def _prepare_migration(self, workspace: str | None = None) -> None:
+        self.state.append_log("Orchestrator: preparing workspace")
+        await self._notify()
         await self.ensure_llm_ready()
         if workspace is not None:
             self.state.workspace = workspace
@@ -122,6 +133,7 @@ class OrchestratorController:
             self._executor,
             self._llm,
             on_notify=self._notify,
+            on_ui_refresh=self._refresh_ui_sync,
             provider_id=self._provider_id,
         )
         if isinstance(self._llm, OpenAIClient):
@@ -141,6 +153,10 @@ class OrchestratorController:
             return
         progress = self.detect_progress()
         if progress.is_resumable and progress.workflow_step != WorkflowStep.IDLE:
+            self.state.append_log(
+                f"Orchestrator: resuming from {progress.display_label()}"
+            )
+            await self._notify()
             await self.resume_migration(progress, workspace=workspace)
             return
         await self.start_fresh_migration(workspace)
@@ -148,6 +164,7 @@ class OrchestratorController:
     async def start_fresh_migration(self, workspace: str | None = None) -> None:
         if self.state.running:
             return
+        self.state.clear_cancel()
         await self._prepare_migration(workspace)
         clear_checkpoint(self._layout)
         self.state.running = True
@@ -174,6 +191,7 @@ class OrchestratorController:
     ) -> None:
         if self.state.running:
             return
+        self.state.clear_cancel()
         await self._prepare_migration(workspace)
         self.state.running = True
         self.state.workflow_step = progress.workflow_step
@@ -189,6 +207,7 @@ class OrchestratorController:
         self._task = asyncio.create_task(self._run_loop())
 
     async def stop(self) -> None:
+        self.state.request_cancel()
         if self._task is not None:
             self._task.cancel()
             try:
@@ -357,6 +376,7 @@ class OrchestratorController:
 
     async def _run_agent_work(self, step: WorkflowStep) -> None:
         self.state.clear_human_review()
+        self.state.append_log(f"Orchestrator: starting {step.label}")
         self.state.set_agent(
             AgentId.ORCHESTRATOR,
             AgentStatus.RUNNING,
@@ -366,6 +386,16 @@ class OrchestratorController:
         await self._notify()
 
         result = await self._runner.run(step)
+
+        if result.success:
+            summary = truncate_line(result.summary) if result.summary else step.label
+            self.state.append_log(f"Orchestrator: completed {step.label} — {summary}")
+        else:
+            self.state.append_log(
+                f"Orchestrator: {step.label} failed",
+                level="error",
+            )
+        await self._notify()
 
         if step == WorkflowStep.RUN_TESTS and not result.success:
             await self._enter_test_failure_review(result)
