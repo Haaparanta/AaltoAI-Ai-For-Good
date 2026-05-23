@@ -1,0 +1,13 @@
+import qrcode.image.base
+from _typeshed import Incomplete
+
+class PilImage(qrcode.image.base.BaseImage):
+    """
+    PIL image builder, default format is PNG.
+    """
+    kind: str
+    fill_color: Incomplete
+    def new_image(self, **kwargs): ...
+    def drawrect(self, row, col) -> None: ...
+    def save(self, stream, format=None, **kwargs) -> None: ...
+    def __getattr__(self, name): ...

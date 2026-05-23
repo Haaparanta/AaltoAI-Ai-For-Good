@@ -1,0 +1,1 @@
+/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/python-qrcode_migration_rust/target/release/libqrcode.dylib: /Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/python-qrcode_migration_rust/src/lib.rs

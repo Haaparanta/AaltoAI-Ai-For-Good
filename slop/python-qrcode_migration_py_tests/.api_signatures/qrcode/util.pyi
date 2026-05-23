@@ -1,0 +1,78 @@
+from _typeshed import Incomplete
+from collections.abc import Generator
+from qrcode import LUT as LUT, base as base, exceptions as exceptions
+from qrcode.base import RSBlock as RSBlock
+
+MODE_NUMBER: Incomplete
+MODE_ALPHA_NUM: Incomplete
+MODE_8BIT_BYTE: Incomplete
+MODE_KANJI: Incomplete
+MODE_SIZE_SMALL: Incomplete
+MODE_SIZE_MEDIUM: Incomplete
+MODE_SIZE_LARGE: Incomplete
+ALPHA_NUM: bytes
+RE_ALPHA_NUM: Incomplete
+NUMBER_LENGTH: Incomplete
+PATTERN_POSITION_TABLE: Incomplete
+G15: Incomplete
+G18: Incomplete
+G15_MASK: Incomplete
+PAD0: int
+PAD1: int
+BIT_LIMIT_TABLE: Incomplete
+
+def BCH_type_info(data): ...
+def BCH_type_number(data): ...
+def BCH_digit(data): ...
+def pattern_position(version): ...
+def mask_func(pattern):
+    """
+    Return the mask function for the given mask pattern.
+    """
+def mode_sizes_for_version(version): ...
+def length_in_bits(mode, version): ...
+def check_version(version) -> None: ...
+def lost_point(modules): ...
+def optimal_data_chunks(data, minimum: int = 4) -> Generator[Incomplete]:
+    """
+    An iterator returning QRData chunks optimized to the data content.
+
+    :param minimum: The minimum number of bytes in a row to split as a chunk.
+    """
+def to_bytestring(data):
+    """
+    Convert data to a (utf-8 encoded) byte-string if it isn't a byte-string
+    already.
+    """
+def optimal_mode(data):
+    """
+    Calculate the optimal mode for this chunk of data.
+    """
+
+class QRData:
+    """
+    Data held in a QR compatible format.
+
+    Doesn't currently handle KANJI.
+    """
+    mode: Incomplete
+    data: Incomplete
+    def __init__(self, data, mode=None, check_data: bool = True) -> None:
+        """
+        If ``mode`` isn't provided, the most compact QR data type possible is
+        chosen.
+        """
+    def __len__(self) -> int: ...
+    def write(self, buffer) -> None: ...
+
+class BitBuffer:
+    buffer: list[int]
+    length: int
+    def __init__(self) -> None: ...
+    def get(self, index): ...
+    def put(self, num, length) -> None: ...
+    def __len__(self) -> int: ...
+    def put_bit(self, bit) -> None: ...
+
+def create_bytes(buffer: BitBuffer, rs_blocks: list[RSBlock]): ...
+def create_data(version, error_correction, data_list): ...

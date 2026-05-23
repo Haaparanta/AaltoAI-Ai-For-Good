@@ -1,0 +1,13 @@
+from qrcode import image as image
+from qrcode.constants import ERROR_CORRECT_H as ERROR_CORRECT_H, ERROR_CORRECT_L as ERROR_CORRECT_L, ERROR_CORRECT_M as ERROR_CORRECT_M, ERROR_CORRECT_Q as ERROR_CORRECT_Q
+from qrcode.main import QRCode as QRCode, make as make
+
+__all__ = ['ERROR_CORRECT_H', 'ERROR_CORRECT_L', 'ERROR_CORRECT_M', 'ERROR_CORRECT_Q', 'QRCode', 'image', 'make', 'run_example']
+
+def run_example(data: str = 'http://www.lincolnloop.com', *args, **kwargs) -> None:
+    """
+    Build an example QR Code and display it.
+
+    There's an even easier way than the code here though: just use the ``make``
+    shortcut.
+    """

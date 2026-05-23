@@ -1,0 +1,31 @@
+[[cases]]
+name = "run_example_small"
+module = "qrcode"
+function = "run_example"
+input_size_tier = "small"
+args_json = "[]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "run_example_medium"
+module = "qrcode"
+function = "run_example"
+input_size_tier = "medium"
+args_json = "[]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "run_example_large"
+module = "qrcode"
+function = "run_example"
+input_size_tier = "large"
+args_json = "[]"
+kwargs_json = "{}"
+
+[[cases]]
+name = "run_example_xlarge"
+module = "qrcode"
+function = "run_example"
+input_size_tier = "xlarge"
+args_json = "[]"
+kwargs_json = "{}"
