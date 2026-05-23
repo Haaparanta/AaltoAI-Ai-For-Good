@@ -11,6 +11,7 @@ import pytest
 
 from executor_mcp import python_test_quality
 from executor_mcp.python_test_quality import (
+    FLAKE8_MAX_LINE_LENGTH,
     format_and_lint,
     format_command,
     format_python,
@@ -80,6 +81,31 @@ def test_lint_tree_on_tests_directory(migration_layout) -> None:
         source_root=migration_layout.source_root,
     )
     assert result.lint_passed is True
+
+
+def test_lint_tree_passes_max_line_length_to_flake8(migration_layout) -> None:
+    tests_dir = migration_layout.py_tests_root / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    (tests_dir / "test_tree.py").write_text(
+        "def test_tree() -> None:\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    with patch.object(
+        python_test_quality,
+        "_run_subprocess",
+        wraps=python_test_quality._run_subprocess,
+    ) as run_subprocess:
+        lint_tree(
+            migration_layout.py_tests_root,
+            source_root=migration_layout.source_root,
+        )
+        flake8_calls = [
+            call
+            for call in run_subprocess.call_args_list
+            if call.args and f"--max-line-length={FLAKE8_MAX_LINE_LENGTH}" in call.args[0]
+        ]
+        assert flake8_calls
 
 
 @pytest.fixture

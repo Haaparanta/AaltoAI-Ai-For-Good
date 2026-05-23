@@ -19,6 +19,8 @@ from executor_mcp.venv_context import (
     mypy_executable,
 )
 
+FLAKE8_MAX_LINE_LENGTH = 120
+
 
 @dataclass(frozen=True)
 class LintToolResult:
@@ -149,6 +151,18 @@ def _run_mypy(
     return _run_subprocess(argv, cwd=py_tests_root, env=env)
 
 
+def _flake8_cmd(py_tests_root: Path, target: str) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "flake8",
+        "--config",
+        str(py_tests_root / ".flake8"),
+        f"--max-line-length={FLAKE8_MAX_LINE_LENGTH}",
+        target,
+    ]
+
+
 def lint_file(
     file_path: Path,
     *,
@@ -158,15 +172,7 @@ def lint_file(
 ) -> tuple[LintToolResult, LintToolResult]:
     """Run flake8 and mypy on a single Python file."""
     rel = file_path.relative_to(py_tests_root)
-    python = sys.executable
-    flake8_cmd = [
-        python,
-        "-m",
-        "flake8",
-        "--config",
-        str(py_tests_root / ".flake8"),
-        str(rel),
-    ]
+    flake8_cmd = _flake8_cmd(py_tests_root, str(rel))
 
     flake8 = _run_subprocess(
         flake8_cmd,
@@ -225,14 +231,7 @@ def lint_tree(
             mypy=LintToolResult(passed=True, output=""),
         )
 
-    flake8_cmd = [
-        sys.executable,
-        "-m",
-        "flake8",
-        "--config",
-        str(py_tests_root / ".flake8"),
-        tests_subdir,
-    ]
+    flake8_cmd = _flake8_cmd(py_tests_root, tests_subdir)
     flake8 = _run_subprocess(
         flake8_cmd,
         cwd=py_tests_root,

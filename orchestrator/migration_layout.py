@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from executor_mcp.api_signatures import API_SIGNATURES_DIR, detect_import_targets
+from executor_mcp.python_test_quality import FLAKE8_MAX_LINE_LENGTH
 from executor_mcp.venv_context import VenvContext, resolve_source_venv
 
 PREFIX_SOURCE = "source"
@@ -134,13 +135,12 @@ class MigrationLayout:
 
     def _ensure_python_lint_config(self) -> None:
         flake8_path = self.py_tests_root / ".flake8"
-        if not flake8_path.is_file():
-            flake8_path.write_text(
-                "[flake8]\n"
-                "max-line-length = 88\n"
-                "extend-ignore = E203,W503\n",
-                encoding="utf-8",
-            )
+        flake8_path.write_text(
+            "[flake8]\n"
+            f"max-line-length = {FLAKE8_MAX_LINE_LENGTH}\n"
+            "extend-ignore = E203,W503\n",
+            encoding="utf-8",
+        )
 
         mypy_path = self.py_tests_root / "mypy.ini"
         if not mypy_path.is_file():

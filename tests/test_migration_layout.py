@@ -49,6 +49,20 @@ def test_ensure_scaffold_mypy_ini_uses_absolute_source_path(
     assert f"mypy_path = {workspace_root.resolve()}" in mypy_ini
 
 
+def test_ensure_scaffold_flake8_uses_120_char_line_length(
+    workspace_root: Path,
+) -> None:
+    layout = MigrationLayout.from_source_project(workspace_root)
+    layout.py_tests_root.mkdir(parents=True, exist_ok=True)
+    (layout.py_tests_root / ".flake8").write_text(
+        "[flake8]\nmax-line-length = 88\n",
+        encoding="utf-8",
+    )
+    layout.ensure_scaffold()
+    flake8_ini = (layout.py_tests_root / ".flake8").read_text(encoding="utf-8")
+    assert "max-line-length = 120" in flake8_ini
+
+
 def test_resolve_read_source(workspace_root: Path) -> None:
     workspace_root.joinpath("README.md").write_text("hello\n", encoding="utf-8")
     layout = MigrationLayout.from_source_project(workspace_root)
