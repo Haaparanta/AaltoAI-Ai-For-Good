@@ -309,11 +309,16 @@ An agentic migration pipeline that treats translation as an engineering workflow
 ---
 
 <!-- _class: section -->
-# Software outlives the environments it was built for
 
-As systems grow and age, organizations face pressure from:
+# Efficiency = Sustainability
 
-<div class="metric-grid"> <div class="metric"><strong>Performance</strong>Reduce compute cost, latency, and infrastructure overhead.</div> <div class="metric"><strong>Accessibility</strong>Run reliably on older hardware, edge devices, and constrained environments.</div> <div class="metric"><strong>Maintainability</strong>Move aging codebases into ecosystems with stronger tooling and long-term support.</div> </div> <div class="metric-grid"> <div class="metric"><strong>Security</strong>Adopt safer languages and modern dependency ecosystems.</div> <div class="metric"><strong>Scalability</strong>Support larger workloads without proportional infrastructure growth.</div> <div class="metric"><strong>Longevity</strong>Preserve valuable software instead of rewriting from scratch.</div> </div>
+Many important Python libraries are easy to use, but expensive to run at scale. L
+
+<div class="metric-grid">
+<div class="metric"><strong>Less compute</strong>Lower CPU time, cloud cost, and energy use for repeated workloads.</div>
+<div class="metric"><strong>More access</strong>Faster tools on older, cheaper, and lower-power hardware.</div>
+<div class="metric"><strong>Longer life</strong>Open-source projects stay maintainable without full manual rewrites.</div>
+</div>
 
 **Sustainability is not only environmental. It is also making good software maintainable, affordable, and accessible over time.**
 
