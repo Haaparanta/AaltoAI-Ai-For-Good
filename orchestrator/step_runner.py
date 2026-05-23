@@ -14,19 +14,14 @@ from agents.runner import (
     fix_agents_for_cargo_output,
     fix_agents_for_lint_output,
     fix_agents_for_pytest_output,
+    review_step_for_work_step,
 )
 from executor_mcp.python_test_quality import lint_tree, tree_lint_output
 from llm.types import LLMClient
 from orchestrator.migration_executor import MigrationExecutor
-from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST_TESTS
+from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_RUST_TESTS
 from orchestrator.models import AgentId, AgentStatus, WorkflowStep
 from orchestrator.state import OrchestratorState
-
-_AGENT_ID_MAP: dict[str, AgentId] = {
-    "analyzer": AgentId.ANALYZER,
-    "tester": AgentId.TESTER,
-    "translator": AgentId.TRANSLATOR,
-}
 
 StateNotify = Callable[[], Awaitable[None] | None]
 
@@ -74,6 +69,10 @@ class StepRunner:
             pytest_result = await self._run_pytest_baseline()
             if not pytest_result.success:
                 return pytest_result
+        if step == WorkflowStep.TRANSLATE_CODE and result.success:
+            quality_result = await self._run_rust_quality_gate()
+            if not quality_result.success:
+                return quality_result
         return result
 
     async def _run_agents(self, step: WorkflowStep) -> StepRunResult:
@@ -87,7 +86,7 @@ class StepRunner:
 
         sequence = agent_sequence_for_step(step)
         for index, agent_key in enumerate(sequence):
-            agent_enum = _AGENT_ID_MAP[agent_key]
+            agent_enum = AgentId.from_key(agent_key)
             self.state.set_agent(agent_enum, AgentStatus.RUNNING)
             await self._notify()
 
@@ -170,7 +169,7 @@ class StepRunner:
 
         output = tree_lint_output(lint_result)
         self.state.append_log(
-            "Orchestrator: flake8/mypy failed — dispatching Tester to fix Python tests"
+            "Orchestrator: flake8/mypy failed — dispatching Py Tester to fix Python tests"
         )
         await self._dispatch_fix_agents(
             fix_agents_for_lint_output(output),
@@ -206,7 +205,7 @@ class StepRunner:
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.append_log(
-            "Orchestrator: pytest failed — dispatching Tester to fix Python tests"
+            "Orchestrator: pytest failed — dispatching Py Tester to fix Python tests"
         )
         await self._dispatch_fix_agents(
             fix_agents_for_pytest_output(output),
@@ -251,7 +250,7 @@ class StepRunner:
 
         fix_agents = fix_agents_for_cargo_output(output)
         agent_names = ", ".join(
-            self.state.agents[_AGENT_ID_MAP[key]].display_name for key in fix_agents
+            self.state.agents[AgentId.from_key(key)].display_name for key in fix_agents
         )
         self.state.append_log(
             f"Orchestrator: cargo test failed — dispatching {agent_names} to fix errors"
@@ -341,7 +340,7 @@ class StepRunner:
         message_phase: str = "work",
     ) -> None:
         for fix_agent_key in fix_agents:
-            fix_agent_enum = _AGENT_ID_MAP[fix_agent_key]
+            fix_agent_enum = AgentId.from_key(fix_agent_key)
             fix_agent_name = self.state.agents[fix_agent_enum].display_name
             self.state.set_agent(
                 AgentId.ORCHESTRATOR,
@@ -404,6 +403,112 @@ class StepRunner:
                     level="error",
                 )
             await self._notify()
+
+    async def run_reviewer(self, review_step: WorkflowStep) -> str:
+        """Run the Reviewer agent before a human review gate."""
+        agent_key = "reviewer"
+        agent_enum = AgentId.REVIEWER
+        self.state.set_agent(agent_enum, AgentStatus.RUNNING)
+        await self._notify()
+
+        user_message = build_user_message(
+            review_step,
+            layout=self._layout(),
+            agent_id=agent_key,
+            feedback=self.state.last_user_feedback,
+        )
+
+        async def on_tool_log(
+            tool_name: str, args: dict[str, Any], result: str
+        ) -> None:
+            detail = args.get("path") or tool_name
+            name = self.state.agents[agent_enum].display_name
+            self.state.append_log(f"{name}: {tool_name} {detail}")
+            await self._notify()
+
+        result = await self._llm.run_agent_turn(
+            agent_id=agent_key,
+            system_prompt=get_system_prompt(agent_key),
+            user_message=user_message,
+            tools=MigrationExecutor.tools_for_agent(agent_key),
+            on_tool_log=on_tool_log,
+        )
+
+        if result.success:
+            self.state.set_agent(
+                agent_enum, AgentStatus.COMPLETED, detail="Review brief ready"
+            )
+            name = self.state.agents[agent_enum].display_name
+            self.state.append_log(f"{name}: {result.summary}")
+        else:
+            self.state.set_agent(
+                agent_enum,
+                AgentStatus.ERROR,
+                detail=result.error or "Review failed",
+            )
+        await self._notify()
+        return result.summary if result.success else ""
+
+    async def _run_rust_quality_gate(self) -> StepRunResult:
+        layout = self._layout()
+        cargo_toml = layout.rust_root / "Cargo.toml"
+        if not cargo_toml.is_file():
+            return StepRunResult(success=True, summary="No Rust crate to quality-check.")
+
+        exit_code, output = await self._execute_rust_quality_checks()
+        if exit_code == 0:
+            self.state.last_agent_summary = (
+                (self.state.last_agent_summary + " Rust quality checks passed.")
+                if self.state.last_agent_summary
+                else "Rust quality checks passed (fmt, clippy)."
+            )
+            return StepRunResult(success=True, summary=self.state.last_agent_summary)
+
+        self.state.append_log(
+            "Orchestrator: cargo fmt/clippy failed — dispatching Translator to fix"
+        )
+        await self._dispatch_fix_agents(
+            ("translator",),
+            step=WorkflowStep.TRANSLATE_CODE,
+            failure_output=output,
+            failure_label="cargo fmt/clippy",
+            message_phase="clippy_fix",
+        )
+        exit_code2, _output2 = await self._execute_rust_quality_checks()
+        if exit_code2 == 0:
+            self.state.last_agent_summary = "Rust quality checks passed after fix."
+            return StepRunResult(success=True, summary=self.state.last_agent_summary)
+
+        self.state.last_agent_summary = (
+            "cargo fmt/clippy still failing after fix attempt. See activity log."
+        )
+        return StepRunResult(
+            success=False,
+            summary=self.state.last_agent_summary,
+            allow_advance=False,
+        )
+
+    async def _execute_rust_quality_checks(self) -> tuple[int, str]:
+        self.state.set_agent(
+            AgentId.EXECUTOR, AgentStatus.RUNNING, detail="cargo fmt/clippy"
+        )
+        await self._notify()
+        combined_output: list[str] = []
+        last_exit = 0
+        for command, label in (
+            ("cargo fmt --check", "cargo fmt --check"),
+            ("cargo clippy -- -D warnings", "cargo clippy"),
+        ):
+            raw = await self._executor.call_tool(
+                "execute_command",
+                {"command": command, "cwd": PREFIX_RUST},
+            )
+            exit_code, output = self._parse_command_output(raw, label=label)
+            combined_output.append(output)
+            if exit_code != 0:
+                last_exit = exit_code
+                break
+        return last_exit, "\n".join(combined_output).strip()
 
 
 _MAX_OUTPUT = 4000

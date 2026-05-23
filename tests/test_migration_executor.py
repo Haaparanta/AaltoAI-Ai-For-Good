@@ -16,14 +16,24 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_tools_for_agent_includes_signatures_for_tester() -> None:
-    tester_tools = MigrationExecutor.tools_for_agent("tester")
-    names = {tool["function"]["name"] for tool in tester_tools}
+def test_tools_for_agent_includes_signatures_for_py_tester() -> None:
+    py_tester_tools = MigrationExecutor.tools_for_agent("py_tester")
+    names = {tool["function"]["name"] for tool in py_tester_tools}
     assert "get_api_signatures" in names
 
     analyzer_tools = MigrationExecutor.tools_for_agent("analyzer")
     analyzer_names = {tool["function"]["name"] for tool in analyzer_tools}
-    assert "get_api_signatures" not in analyzer_names
+    assert "get_api_signatures" in analyzer_names
+
+    translator_tools = MigrationExecutor.tools_for_agent("translator")
+    translator_names = {tool["function"]["name"] for tool in translator_tools}
+    assert "get_api_signatures" not in translator_names
+
+
+def test_tools_for_agent_reviewer_is_read_only() -> None:
+    reviewer_tools = MigrationExecutor.tools_for_agent("reviewer")
+    names = {tool["function"]["name"] for tool in reviewer_tools}
+    assert names == {"read_file"}
 
 
 def test_write_py_test_returns_lint_payload(migration_executor: MigrationExecutor) -> None:

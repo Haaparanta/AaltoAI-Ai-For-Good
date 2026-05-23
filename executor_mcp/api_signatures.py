@@ -272,3 +272,46 @@ def result_to_dict(result: ApiSignaturesResult) -> dict[str, Any]:
     if result.content is not None:
         payload["content"] = result.content
     return payload
+
+
+def resolve_api_roots(workspace_root: Path) -> tuple[Path, Path]:
+    """Resolve source and cache directories for API signature generation."""
+    source_candidate = workspace_root / "source"
+    if source_candidate.is_dir():
+        source_root = source_candidate
+    else:
+        source_root = workspace_root
+
+    py_tests = workspace_root / "py_tests"
+    if py_tests.is_dir():
+        cache_root = py_tests / API_SIGNATURES_DIR
+    else:
+        cache_root = workspace_root / API_SIGNATURES_DIR
+    cache_root.mkdir(parents=True, exist_ok=True)
+    return source_root, cache_root
+
+
+def register(mcp: Any, workspace_root: Path) -> None:
+    """Register the get_api_signatures tool on the MCP server."""
+    from mcp.server.fastmcp import FastMCP
+
+    if not isinstance(mcp, FastMCP):
+        raise TypeError("mcp must be a FastMCP instance")
+
+    @mcp.tool()
+    def get_api_signatures(
+        module: str | None = None,
+        refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Load public API signatures (.pyi stubs) for the source project."""
+        source_root, cache_root = resolve_api_roots(workspace_root)
+        try:
+            result = get_api_signatures_impl(
+                source_root,
+                cache_root,
+                module=module,
+                refresh=refresh,
+            )
+        except ApiSignaturesError as exc:
+            raise ValueError(str(exc)) from exc
+        return {"ok": True, **result_to_dict(result)}

@@ -11,17 +11,26 @@ flowchart TB
     TUI <--> Orch[Orchestrator]
 
     Orch --> Analyzer
-    Orch --> Tester
+    Orch --> PyTester[Py Tester]
+    Orch --> RustTester[Rust Tester]
+    Orch --> Scaffolder
     Orch --> Translator
+    Orch --> Reviewer
     Orch --> Exec[Executor]
 
     Analyzer --> LLM
-    Tester --> LLM
+    PyTester --> LLM
+    RustTester --> LLM
+    Scaffolder --> LLM
     Translator --> LLM
+    Reviewer --> LLM
 
     Analyzer --> ME[Migration Executor]
-    Tester --> ME
+    PyTester --> ME
+    RustTester --> ME
+    Scaffolder --> ME
     Translator --> ME
+    Reviewer --> ME
     Exec --> ME
 
     ME --> Source[source/ read-only]
@@ -30,7 +39,7 @@ flowchart TB
     ME --> RT[rust_tests/]
 ```
 
-**Agents:** Analyzer (plan), Tester (Python + Rust tests), Translator (Rust code), Executor (`pytest` / `cargo test`).
+**Agents:** Analyzer (plan), Py Tester (Python tests), Rust Tester (Rust tests), Scaffolder (crate skeleton), Translator (Rust code), Reviewer (pre-review briefs), Executor (`pytest` / `cargo test`).
 
 **On disk** (for `myproject/` at `/path/to/`):
 

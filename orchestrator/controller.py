@@ -13,6 +13,7 @@ from llm.openai_client import OpenAIClient
 from llm.types import LLMClient
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout
+from agents.runner import review_step_for_work_step
 from orchestrator.models import (
     REVIEW_TO_WORK,
     AgentId,
@@ -308,6 +309,18 @@ class OrchestratorController:
             )
 
         next_step = _NEXT_AFTER_WORK[step]
+        review_step = review_step_for_work_step(step)
+        if result.success and review_step is not None:
+            reviewer_summary = await self._runner.run_reviewer(review_step)
+            if reviewer_summary.strip():
+                work_summary = self.state.last_agent_summary.strip()
+                if work_summary:
+                    self.state.last_agent_summary = (
+                        f"{work_summary}\n\n### Reviewer brief\n{reviewer_summary.strip()}"
+                    )
+                else:
+                    self.state.last_agent_summary = reviewer_summary.strip()
+
         self.state.workflow_step = next_step
         self.state.append_log(f"Advanced to: {next_step.label}")
         await self._notify()
