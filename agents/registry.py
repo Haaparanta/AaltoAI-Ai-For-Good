@@ -80,7 +80,7 @@ _WORKFLOW_AGENTS: tuple[AgentSpec, ...] = (
         display_name="Benchmarker",
         role="Step 6 — benchmarks Python vs Rust wheels into measurements/",
         prompt=BENCHMARKER_SYSTEM_PROMPT,
-        llm=False,
+        llm=True,
         write_prefixes=("measurements/",),
     ),
 )

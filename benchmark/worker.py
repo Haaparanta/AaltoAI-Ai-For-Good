@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 from benchmark.config import BenchmarkCase, RunSample
+from benchmark.isolated_env import subprocess_env
 
 _WORKER_SCRIPT = textwrap.dedent(
     """
@@ -17,6 +20,10 @@ _WORKER_SCRIPT = textwrap.dedent(
     import time
 
     import psutil
+
+    site = os.environ.get("BENCHMARK_SITE")
+    if site:
+        sys.path.insert(0, site)
 
     payload = json.loads(sys.stdin.read())
     module_name = payload["module"]
@@ -51,6 +58,7 @@ def run_case_once(
     *,
     backend: str,
     run_index: int,
+    site_dir: Path,
 ) -> RunSample:
     args = json.loads(case.args_json)
     kwargs = json.loads(case.kwargs_json)
@@ -68,6 +76,7 @@ def run_case_once(
             capture_output=True,
             text=True,
             check=False,
+            env=subprocess_env(site_dir),
         )
         if proc.returncode != 0:
             error = (proc.stderr or proc.stdout or "worker failed").strip()

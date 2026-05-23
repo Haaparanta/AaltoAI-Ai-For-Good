@@ -186,9 +186,15 @@ The pipeline uses **nine coordinated roles**. Six are LLM-backed specialists; th
 
 ### Benchmarker
 
-**Intended function:** Deterministic performance comparison — not an LLM agent. Runs automatically as **Step 6** after migration pytest passes (Step 5).
+**Intended function:** Hybrid LLM + deterministic performance comparison. Runs automatically as **Step 6** after migration pytest passes (Step 5).
 
-- Builds a **Python source wheel** and uses the existing **Rust PyO3 wheel** (fair comparison — both installed via pip, not raw `PYTHONPATH`)
+**Hybrid flow:**
+1. **Auto-run (fast path)** — discovers cases from, in order: `measurements/benchmark_suite.toml`, known generators, API signatures (`.pyi`), or pytest call patterns; then runs the deterministic benchmark engine.
+2. **LLM fallback** — if auto-discovery finds no cases or the run fails, the Benchmarker agent inspects the project, writes `benchmark_suite.toml`, and calls `run_benchmarks`.
+
+**Tools:** `get_api_signatures`, `read_file`, `write_file` (`measurements/` only), `execute_command`, `run_benchmarks`
+
+- Builds a **Python source wheel** and uses the existing **Rust PyO3 wheel** (fair comparison — isolated `--target` installs, not shared venv `main` clashes)
 - Verifies Python and Rust outputs match before timing
 - Runs benchmarks at four input tiers (**small → medium → large → xlarge**), 100+ iterations each (use `--quick` for 10)
 - Measures latency, variance (CV%, percentiles), peak RSS, CPU%, and artifact sizes
@@ -198,8 +204,19 @@ The pipeline uses **nine coordinated roles**. Six are LLM-backed specialists; th
 report.txt, raw_runs.csv, summary.csv, metadata.json, graphs/*.png
 ```
 
-- Optional custom cases: `measurements/benchmark_suite.toml`
-- Also runnable standalone:
+**Custom cases** — `measurements/benchmark_suite.toml`:
+
+```toml
+[[cases]]
+name = "bubble_sort_small"
+module = "main"
+function = "bubble_sort"
+input_size_tier = "small"
+args_json = "[[3,1,4,1,5,9,2,6]]"
+kwargs_json = "{}"
+```
+
+Also runnable standalone:
 
 ```bash
 uv run benchmark-measurements -w /path/to/python/project

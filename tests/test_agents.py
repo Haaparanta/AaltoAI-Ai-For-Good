@@ -42,8 +42,9 @@ def test_benchmarker_prompt_and_role() -> None:
     assert BENCHMARKER_SYSTEM_PROMPT.strip()
     assert "Step 6" in BENCHMARKER_SYSTEM_PROMPT
     spec = get_spec("benchmarker")
-    assert spec.llm is False
+    assert spec.llm is True
     assert "measurements" in spec.role
+    assert get_system_prompt("benchmarker") is BENCHMARKER_SYSTEM_PROMPT
 
 
 def test_get_system_prompt_unknown_agent() -> None:

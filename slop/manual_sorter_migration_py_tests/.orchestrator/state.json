@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "source_root": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/manual_sorter",
+  "workflow_step": "measure_performance",
+  "awaiting_human": false,
+  "last_agent_summary": "Migration pytest passed against installed wheel.",
+  "updated_at": "2026-05-23T10:49:34.537098+00:00"
+}

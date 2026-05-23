@@ -6,6 +6,13 @@ from dataclasses import dataclass, field
 
 INPUT_SIZE_TIERS = ("small", "medium", "large", "xlarge")
 
+TIER_SCALES: dict[str, dict[str, int]] = {
+    "small": {"n": 100, "list_len": 50, "word_len": 5, "text_len": 50},
+    "medium": {"n": 1_000, "list_len": 500, "word_len": 8, "text_len": 500},
+    "large": {"n": 10_000, "list_len": 5_000, "word_len": 12, "text_len": 2_000},
+    "xlarge": {"n": 100_000, "list_len": 20_000, "word_len": 16, "text_len": 10_000},
+}
+
 
 @dataclass(frozen=True)
 class BenchmarkConfig:

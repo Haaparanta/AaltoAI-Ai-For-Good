@@ -1,0 +1,10 @@
+main-0.1.0.dist-info/INSTALLER,sha256=5hhM4Q4mYTT9z6QB6PGpUAW81PGNFrYrdXMj4oM_6ak,2
+main-0.1.0.dist-info/METADATA,sha256=Bn6YqJCp4Cwrk2HSDaMFGHokxCAF5hWPPznoVE92wtQ,71
+main-0.1.0.dist-info/RECORD,,
+main-0.1.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
+main-0.1.0.dist-info/WHEEL,sha256=EZqPRRNHAs7E6E3YRHgwwkbOV09ItXAcguKsnwQEIMU,105
+main-0.1.0.dist-info/direct_url.json,sha256=xh7cJaX7Ti8krM2FNbqdG6Ty8ZRiYGiuo5yng6Iw1wo,177
+main-0.1.0.dist-info/sboms/main.cyclonedx.json,sha256=s0YyQmTRO4usSTQjzZcXmVa58tY4PoOZuAC5U2WtN4I,32442
+main-0.1.0.dist-info/uv_cache.json,sha256=7a1L511fwRBA-CsuzmKO7HZD_RSUeRkoAlmnh4hekho,126
+main/__init__.py,sha256=BVunGqqV5GyF4YXR6jG2r3ueKNZOm2K4GHN-YGYyKJQ,99
+main/main.cpython-312-darwin.so,sha256=MjCg8intF5rxeXFW0KJWRlghNcoXPZ7xRhcMOmJI3jw,483840

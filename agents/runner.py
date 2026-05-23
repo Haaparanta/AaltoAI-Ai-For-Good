@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_SOURCE
+from orchestrator.migration_layout import (
+    MigrationLayout,
+    PREFIX_MEASUREMENTS,
+    PREFIX_PY_TESTS,
+    PREFIX_RUST,
+    PREFIX_SOURCE,
+)
 from orchestrator.models import ParallelPolicy, WorkflowStep
 
 _FEEDBACK_PREFIX = "User feedback from the last review (apply these changes):\n"
@@ -47,6 +53,7 @@ def build_user_message(
     feedback: str = "",
     message_phase: str = "work",
     scope: str = "",
+    benchmark_context: str = "",
 ) -> str:
     """Build the user message for the current workflow work step."""
     paths = layout.tool_path_guide()
@@ -119,6 +126,25 @@ def build_user_message(
             "is installed. Do not weaken tests."
         )
         return f"{header}Phase: FIX AFTER MIGRATION TEST FAILURE.\n{task}"
+    if step == WorkflowStep.MEASURE_PERFORMANCE:
+        context_block = ""
+        if benchmark_context.strip():
+            context_block = (
+                "Automatic benchmark attempt failed or found no cases:\n"
+                f"{benchmark_context.strip()}\n\n"
+            )
+        task = (
+            f"{context_block}"
+            f"Call `get_api_signatures()` and read `{PREFIX_PY_TESTS}/tests/` to learn "
+            "the public API and realistic inputs.\n"
+            f"Write `{PREFIX_MEASUREMENTS}/benchmark_suite.toml` with one case per "
+            "function × tier (small → xlarge).\n"
+            "Probe tricky calls with `execute_command` if needed, then call "
+            "`run_benchmarks` (use quick=true while iterating).\n"
+            "Confirm `measurements/report.txt` and `measurements/summary.csv` exist "
+            "before finishing."
+        )
+        return f"{header}Phase: BENCHMARK PYTHON VS RUST.\n{task}"
     if step in (WorkflowStep.REVIEW_PLAN_PY, WorkflowStep.REVIEW_RUST_CODE):
         focus = {
             WorkflowStep.REVIEW_PLAN_PY: "migration plan and Python baseline tests",
@@ -160,6 +186,8 @@ def agent_stages_for_step(step: WorkflowStep) -> tuple[AgentStage, ...]:
             AgentStage(("scaffolder",), ParallelPolicy.SEQUENTIAL),
             AgentStage(("translator",), ParallelPolicy.FAN_OUT),
         )
+    if step == WorkflowStep.MEASURE_PERFORMANCE:
+        return (AgentStage(("benchmarker",), ParallelPolicy.SEQUENTIAL),)
     raise ValueError(f"No agent stages for workflow step: {step}")
 
 

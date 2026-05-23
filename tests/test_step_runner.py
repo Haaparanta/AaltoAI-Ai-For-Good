@@ -42,6 +42,9 @@ def test_agent_sequences() -> None:
         "scaffolder",
         "translator",
     )
+    assert agent_sequence_for_step(WorkflowStep.MEASURE_PERFORMANCE) == (
+        "benchmarker",
+    )
 
 
 def test_review_step_for_work_step() -> None:
@@ -169,6 +172,68 @@ def test_build_user_message_run_tests_includes_translator(
     )
     assert "PyO3" in message
     assert "pytest" in message
+
+
+def test_build_user_message_measure_performance(
+    migration_layout: MigrationLayout,
+) -> None:
+    message = build_user_message(
+        WorkflowStep.MEASURE_PERFORMANCE,
+        layout=migration_layout,
+        agent_id="benchmarker",
+        benchmark_context="Correctness check failed for demo_small",
+    )
+    assert "benchmark_suite.toml" in message
+    assert "run_benchmarks" in message
+    assert "Correctness check failed" in message
+
+
+@patch("benchmark.runner.run_benchmarks")
+@patch("benchmark.cases.generate_cases")
+def test_measure_performance_fast_path_success(
+    mock_generate_cases: object,
+    mock_run_benchmarks: object,
+    workspace_root: Path,
+    migration_layout: MigrationLayout,
+    migration_executor: MigrationExecutor,
+) -> None:
+    from benchmark.config import BenchmarkCase
+    from benchmark.runner import BenchmarkResult
+
+    mock_generate_cases.return_value = [
+        BenchmarkCase("demo_small", "main", "demo", "small", "[1]")
+    ]
+    mock_run_benchmarks.return_value = BenchmarkResult(
+        success=True,
+        summary="Benchmarks completed.",
+        output_dir=migration_layout.measurements_root,
+    )
+
+    async def run() -> None:
+        runner = _runner(workspace_root, migration_layout, migration_executor)
+        result = await runner.run(WorkflowStep.MEASURE_PERFORMANCE)
+        assert result.success
+        assert "Benchmarks completed" in result.summary
+
+    _run(run())
+
+
+@patch("benchmark.cases.generate_cases", return_value=[])
+def test_measure_performance_llm_fallback_when_no_cases(
+    _mock_generate_cases: object,
+    workspace_root: Path,
+    migration_layout: MigrationLayout,
+    migration_executor: MigrationExecutor,
+) -> None:
+    async def run() -> None:
+        runner = _runner(workspace_root, migration_layout, migration_executor)
+        result = await runner.run(WorkflowStep.MEASURE_PERFORMANCE)
+        assert any(
+            "invoking llm" in entry.message.lower()
+            for entry in runner.state.log
+        )
+
+    _run(run())
 
 
 def test_run_reviewer_returns_summary(

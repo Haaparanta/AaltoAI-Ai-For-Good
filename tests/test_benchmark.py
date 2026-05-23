@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -50,6 +51,29 @@ def test_generate_cases_anagram_grouper() -> None:
     names = {case.name for case in cases}
     assert "group_anagrams_small" in names
     assert "group_anagrams_xlarge" in names
+
+
+def test_generate_cases_bubble_sort() -> None:
+    root = Path(__file__).resolve().parents[1] / "slop" / "manual_sorter"
+    cases = generate_cases(root)
+    names = {case.name for case in cases}
+    assert "bubble_sort_small" in names
+    small = next(case for case in cases if case.name == "bubble_sort_small")
+    args = json.loads(small.args_json)
+    assert len(args) == 1
+    assert isinstance(args[0], list)
+    assert len(args[0]) > 0
+
+
+def test_generate_cases_returns_empty_for_unknown_without_layout(tmp_path: Path) -> None:
+    source = tmp_path / "demo"
+    source.mkdir()
+    (source / "main.py").write_text(
+        "def mystery(x: int, y: str) -> bool:\n    return True\n",
+        encoding="utf-8",
+    )
+    cases = generate_cases(source)
+    assert cases == []
 
 
 def test_format_bytes() -> None:
@@ -121,7 +145,7 @@ def test_write_report_txt(tmp_path: Path) -> None:
 
 @patch("benchmark.runner.build_rust_wheel")
 @patch("benchmark.runner.build_python_wheel")
-@patch("benchmark.runner.install_wheel", return_value=(True, "ok"))
+@patch("benchmark.runner.install_wheel_isolated", return_value=(True, "ok"))
 @patch("benchmark.runner.run_case_once")
 @patch("benchmark.runner._compare_backends", return_value=(True, ""))
 def test_run_benchmarks_writes_outputs(
@@ -153,7 +177,7 @@ def test_run_benchmarks_writes_outputs(
     mock_py_wheel.return_value = (True, "built py", py_wheel, 0.1)
     mock_rust_wheel.return_value = (True, "built rust", rust_wheel)
 
-    def fake_run(case, *, backend, run_index):
+    def fake_run(case, *, backend, run_index, site_dir):
         return RunSample(
             benchmark=case.name,
             backend=backend,

@@ -91,6 +91,9 @@ class StubLLM:
                 success=True,
             )
 
+        if agent_id == "benchmarker":
+            return await self._run_benchmarker(on_tool_log=on_tool_log)
+
         artifacts: list[str] = []
 
         if self._fix_test_mode and agent_id == self._fix_agent_id:
@@ -176,6 +179,45 @@ class StubLLM:
                 if log_result is not None:
                     await log_result
         return artifacts
+
+    async def _run_benchmarker(
+        self,
+        *,
+        on_tool_log: ToolLogCallback | None = None,
+    ) -> AgentResult:
+        suite_path = "measurements/benchmark_suite.toml"
+        suite_content = (
+            '[[cases]]\n'
+            'name = "stub_small"\n'
+            'module = "main"\n'
+            'function = "stub"\n'
+            'input_size_tier = "small"\n'
+            'args_json = "[]"\n'
+        )
+        write_result = await self._executor.call_tool(
+            "write_file",
+            {"path": suite_path, "content": suite_content},
+        )
+        if on_tool_log is not None:
+            log_result = on_tool_log(
+                "write_file", {"path": suite_path}, write_result
+            )
+            if log_result is not None:
+                await log_result
+
+        run_result = await self._executor.call_tool("run_benchmarks", {"quick": True})
+        if on_tool_log is not None:
+            log_result = on_tool_log("run_benchmarks", {"quick": True}, run_result)
+            if log_result is not None:
+                await log_result
+
+        payload = json.loads(run_result)
+        success = bool(payload.get("success"))
+        return AgentResult(
+            summary=str(payload.get("summary", "Benchmarker stub finished")),
+            artifacts=[suite_path],
+            success=success,
+        )
 
     async def _read_workspace_file(self, path: str) -> str:
         raw = await self._executor.call_tool("read_file", {"path": path})
