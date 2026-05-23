@@ -244,6 +244,39 @@ section.closing::before {
 .demo .caption {
   color: #c3d7cd;
 }
+
+.summary-quote {
+  color: #f7faf8;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.12;
+  margin: 18px 0 12px;
+  max-width: 900px;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: 14px;
+}
+
+.summary-card {
+  background: #e8f2ed;
+  border: 1px solid #bdd4c7;
+  border-radius: 14px;
+  color: #11221b;
+  font-size: 18px;
+  line-height: 1.25;
+  padding: 12px 14px;
+}
+
+.summary-card strong {
+  color: #b75521;
+  display: block;
+  font-size: 19px;
+  margin-bottom: 4px;
+}
 </style>
 
 <!-- _class: title -->
@@ -282,18 +315,13 @@ Important software often survives longer than the technology stack it was built 
 Migration is not about chasing a newer language. It is about making useful software cheaper, safer, and easier to keep alive.
 
 <div class="grid-2">
-<div class="card"><strong>Price</strong>Moving from expensive proprietary ecosystems, such as MATLAB, to open ecosystems like Python can lower licensing barriers.</div>
+<div class="card"><strong>Price</strong>Moving from expensive proprietary ecosystems, can lower licensing barriers.</div>
 <div class="card"><strong>Sustainability</strong>Moving code to more efficient languages can reduce CPU time, lowering energy use and cloud cost for repeated workloads.</div>
 <div class="card"><strong>Longevity</strong>Updating older code to newer languages, runtimes, and package formats extends its useful lifetime.</div>
-<div class="card"><strong>Security</strong>Rust can prevent many buffer and use-after-free bugs at compile time, reducing risk in performance-critical code.</div>
-</div>
-
-<div class="callout">
-<strong>Modernization makes software more accessible:</strong> cheaper to adopt, cheaper to run, easier to maintain, and safer to depend on.
+<div class="card"><strong>Security</strong>Updating the language can reduce runtime errors in performance-critical code.</div>
 </div>
 
 ---
-
 # Our Approach
 
 We turn code migration into an engineering workflow instead of a one-shot prompt.
@@ -318,7 +346,7 @@ We turn code migration into an engineering workflow instead of a one-shot prompt
 <div class="arrow">&rarr;</div>
 <div class="flow-column">
 <div class="node">Analyzer</div>
-<div class="node">Py Tester</div>
+<div class="node">Tester</div>
 <div class="node">Reviewer</div>
 <div class="node">Scaffolder</div>
 </div>
@@ -338,7 +366,7 @@ We turn code migration into an engineering workflow instead of a one-shot prompt
 </div>
 
 <div class="callout">
-<strong>Safety rule:</strong> the original source project is read-only. Generated tests, Rust code, and measurements go to separate output folders.
+<strong>Safety rule:</strong> the original source project is read-only. Generated tests, code, and measurements go to separate output folders.
 </div>
 
 ---
@@ -370,20 +398,7 @@ That makes Python-to-Rust a strong first case study:
 - Validate that behavior still matches the original package
 - Measure whether the migration actually improves performance
 
-**The point is not only Rust. The point is trustworthy modernization.**
-
----
-
-# Why Judges Should Care
-
-Most AI coding demos show generation. This project shows preservation.
-
-<div class="grid-2">
-<div class="card"><strong>Trust</strong>Behavior is encoded as tests before implementation is replaced.</div>
-<div class="card"><strong>Transparency</strong>Human reviewers see plans, generated artifacts, risks, and summaries.</div>
-<div class="card"><strong>Accountability</strong>Success is checked by compilers, test runners, and benchmark reports.</div>
-<div class="card"><strong>Access</strong>Small teams get a guided modernization workflow normally reserved for larger organizations.</div>
-</div>
+**The point is not only Rust. The point is trustworthy modernization and measurable improvements.**
 
 ---
 
@@ -448,29 +463,22 @@ The next slides show actual demo artifacts from this repo.
 
 # Demo: Measured Speedup
 
-<div class="image-grid">
-<div>
-<img class="graph" src="slop/manual_sorter_measurements/graphs/speedup_ratio.png" alt="Manual sorter speedup ratio graph">
-<p class="caption">Manual sorter benchmark: Rust reaches up to 94.68x speedup on large inputs.</p>
-</div>
-<div>
-<img class="graph" src="slop/manual_sorter_measurements/graphs/latency_vs_input_size.png" alt="Manual sorter latency graph">
-<p class="caption">Latency comparison across input sizes from installed Python and Rust wheels.</p>
-</div>
-</div>
+<img class="graph" src="slop/combined_graphs/speedup_heatmap.png" alt="Heatmap of Rust speedup by project and input size">
+
+<p class="caption">Combined benchmark heatmap across six demo projects. Green means Rust is faster; red means Python is faster.</p>
 
 ---
 
-# Demo: Not Every Case Is The Same
+# Demo: Speedup Varies By Workload
 
 <div class="image-grid">
 <div>
-<img class="graph" src="slop/anagram_grouper_measurements/graphs/speedup_ratio.png" alt="Anagram grouper speedup ratio graph">
-<p class="caption">Anagram grouping improves on larger inputs, but Python wins on very small inputs.</p>
+<img class="graph" src="slop/combined_graphs/speedup_by_project.png" alt="Grouped bar chart of Rust speedup by project and input size">
+<p class="caption">Manual sorter shows the biggest win, reaching 94.68x on large inputs and 65.79x on xlarge inputs.</p>
 </div>
 <div>
-<img class="graph" src="slop/prime_generator_measurements/graphs/speedup_ratio.png" alt="Prime generator speedup ratio graph">
-<p class="caption">Prime generation is closer to parity, showing why measurement matters.</p>
+<img class="graph" src="slop/combined_graphs/latency_large_tier.png" alt="Large-tier latency comparison across projects">
+<p class="caption">Large-tier latency shows where migration clearly helps and where the result is closer to parity.</p>
 </div>
 </div>
 
@@ -480,12 +488,12 @@ The next slides show actual demo artifacts from this repo.
 
 <div class="image-grid">
 <div>
-<img class="graph" src="slop/manual_sorter_measurements/graphs/resource_usage.png" alt="Manual sorter resource usage graph">
-<p class="caption">Resource graphs help connect performance to cost and sustainability.</p>
+<img class="graph" src="slop/combined_graphs/peak_rss_large_tier.png" alt="Large-tier peak memory usage across projects">
+<p class="caption">Peak memory comparison keeps the pitch honest: performance wins may come with resource tradeoffs.</p>
 </div>
 <div>
 <img class="graph" src="slop/manual_sorter_measurements/graphs/artifact_sizes.png" alt="Manual sorter artifact size graph">
-<p class="caption">Artifacts include build size and package-size tradeoffs, not just speed.</p>
+<p class="caption">Single-project artifact sizes show package tradeoffs alongside runtime improvements.</p>
 </div>
 </div>
 
@@ -493,24 +501,24 @@ The next slides show actual demo artifacts from this repo.
 
 <!-- _class: section -->
 
-# Impact
+# Presentation Summary
 
-Remember why modernization matters:
+The pitch in one sentence:
 
-<div class="grid-2">
-<div class="card"><strong>Price</strong>Open and efficient ecosystems reduce licensing, infrastructure, and operational costs.</div>
-<div class="card"><strong>Sustainability</strong>Faster code can use less CPU, lowering energy use for repeated workloads.</div>
-<div class="card"><strong>Longevity</strong>Updating old code keeps important systems usable for future teams.</div>
-<div class="card"><strong>Access</strong>Smaller organizations can modernize without needing a large rewrite budget.</div>
+<p class="summary-quote">Modernization should be accessible, trustworthy, and measurable.</p>
+
+<div class="summary-grid">
+<div class="summary-card"><strong>Why it matters</strong>Lower cost, less compute, longer software lifetime, safer systems.</div>
+<div class="summary-card"><strong>What we built</strong>Agentic migration with tests, review gates, validation, and benchmarks.</div>
+<div class="summary-card"><strong>What the demo proves</strong>Python libraries can be translated and made into a wheel that are measurably more efficient and we proved we can translate real world examples.</div>
+<div class="summary-card"><strong>Where it goes next</strong>The same workflow can become language-agnostic modernization and apply to even more complex environments</div>
 </div>
-
-**Goal:** make trustworthy modernization available to the teams that need it most.
 
 ---
 
 # Ask / Next Steps
 
-We are looking for feedback on:
+Important questions for next steps:
 
 - Which language pairs create the most social impact?
 - What evidence makes users trust an AI-assisted migration?
