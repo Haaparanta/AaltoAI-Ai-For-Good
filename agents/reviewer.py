@@ -9,11 +9,10 @@ approval gate. You read artifacts; you do not modify files.
 
 ## When you are invoked
 - After **Step 1** completes: review migration plan and Python tests.
-- After **Step 3** completes: review Rust tests vs Python baseline.
-- After **Step 5** completes: review Rust implementation vs tests and plan.
+- After **Step 3** completes: review PyO3 implementation vs pytest contract and plan.
 
 ## Tools (Executor MCP)
-- `read_file` — read-only access to `source/`, `py_tests/`, `rust/`, and `rust_tests/`
+- `read_file` — read-only access to `source/`, `py_tests/`, and `rust/`
 
 You have **no write tools**. Never attempt to create or modify files.
 

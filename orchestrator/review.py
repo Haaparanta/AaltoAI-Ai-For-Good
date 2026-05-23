@@ -11,7 +11,6 @@ from orchestrator.models import ReviewContext, WorkflowStep
 _MAX_SUMMARY_CHARS = 2000
 _REVIEW_TITLES: dict[WorkflowStep, str] = {
     WorkflowStep.REVIEW_PLAN_PY: "Review migration plan & Python tests",
-    WorkflowStep.REVIEW_RUST_TESTS: "Review Rust tests",
     WorkflowStep.REVIEW_RUST_CODE: "Review Rust source",
 }
 
@@ -71,22 +70,9 @@ def build_review_context(
         else:
             summary_parts.append("No Python tests under py_tests/tests/.")
 
-    elif step == WorkflowStep.REVIEW_RUST_TESTS:
-        rust_tests = _glob_relative(layout.rust_tests_root, "tests/**/*.rs")
-        artifacts.extend(f"rust_tests/{p}" for p in rust_tests)
-        if rust_tests:
-            first = rust_tests[0]
-            summary_parts.append(
-                f"### {first}\n" + _read_excerpt(layout.rust_tests_root, first)
-            )
-            if len(rust_tests) > 1:
-                summary_parts.append("Also: " + ", ".join(rust_tests[1:]))
-        else:
-            summary_parts.append("No Rust test files in rust_tests/tests/.")
-
     elif step == WorkflowStep.REVIEW_RUST_CODE:
         root = layout.rust_root
-        for name in ("Cargo.toml", "src/lib.rs", "src/main.rs"):
+        for name in ("Cargo.toml", "pyproject.toml", "src/lib.rs", "src/main.rs"):
             if (root / name).is_file():
                 artifacts.append(f"rust/{name}")
         artifacts.extend(f"rust/{p}" for p in _glob_relative(root, "src/**/*.rs"))
@@ -94,6 +80,11 @@ def build_review_context(
         if (root / "Cargo.toml").is_file():
             summary_parts.append(
                 "### Cargo.toml\n" + _read_excerpt(root, "Cargo.toml", max_lines=30)
+            )
+        if (root / "pyproject.toml").is_file():
+            summary_parts.append(
+                "### pyproject.toml\n"
+                + _read_excerpt(root, "pyproject.toml", max_lines=30)
             )
         lib = root / "src/lib.rs"
         if lib.is_file():

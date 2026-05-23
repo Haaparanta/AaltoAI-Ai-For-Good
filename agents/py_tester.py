@@ -44,8 +44,7 @@ After each run, briefly list:
 - Open gaps (untested edge cases you recommend for a later pass)
 
 ## Boundaries
-- Do **not** write Rust tests (Rust Tester).
-- Do **not** translate implementation to Rust (Translator).
+- Do **not** write Rust code (Scaffolder / Translator).
 - Do **not** replace the Analyzer's migration plan — reference it, don't rewrite project structure analysis.
 - Do **not** weaken tests to make broken code pass; tests encode the contract.
 

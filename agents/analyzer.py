@@ -40,8 +40,7 @@ Write structured markdown the Orchestrator can show at human review. Include:
 Be concise and factual. Quote short snippets only when they clarify non-obvious behavior.
 
 ## Boundaries
-- Do **not** write pytest or Rust tests (Py Tester / Rust Tester).
-- Do **not** translate implementation to Rust (Translator).
+- Do **not** write pytest or Rust code (Py Tester / Scaffolder / Translator).
 - Do **not** skip reading files you reference; ground every claim in the repo.
 - If the scope is unclear, state assumptions explicitly and list files you still need.
 

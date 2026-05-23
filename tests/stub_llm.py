@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from llm.types import AgentResult, ToolLogCallback
@@ -19,35 +18,30 @@ _FAKE_ARTIFACTS: dict[str, list[tuple[str, str]]] = {
     "py_tester": [
         (
             "py_tests/tests/test_migrated.py",
-            'def test_stub():\n    assert True\n',
+            'def test_stub() -> None:\n    assert True\n',
         ),
     ],
     "scaffolder": [
         (
             "rust/Cargo.toml",
-            '[package]\nname = "migrated"\nversion = "0.1.0"\nedition = "2021"\n',
+            '[package]\nname = "migrated"\nversion = "0.1.0"\nedition = "2021"\n\n[lib]\nname = "migrated"\ncrate-type = ["cdylib"]\n\n[dependencies]\npyo3 = { version = "0.23", features = ["extension-module"] }\n',
+        ),
+        (
+            "rust/pyproject.toml",
+            '[build-system]\nrequires = ["maturin>=1.0,<2.0"]\nbuild-backend = "maturin"\n\n[project]\nname = "migrated"\nrequires-python = ">=3.10"\n\n[tool.maturin]\nfeatures = ["pyo3/extension-module"]\n',
         ),
         (
             "rust/src/lib.rs",
-            "pub fn stub() -> i32 {\n    todo!()\n}\n",
+            "use pyo3::prelude::*;\n\n#[pymodule]\nfn migrated(m: &Bound<'_, PyModule>) -> PyResult<()> { Ok(()) }\n",
         ),
     ],
     "translator": [
         (
             "rust/src/lib.rs",
-            "pub fn stub() -> i32 {\n    42\n}\n",
+            "use pyo3::prelude::*;\n\n#[pymodule]\nfn migrated(m: &Bound<'_, PyModule>) -> PyResult<()> { Ok(()) }\n",
         ),
     ],
 }
-
-_RUST_TESTER_ARTIFACTS: list[tuple[str, str]] = [
-    (
-        "rust_tests/tests/integration_test.rs",
-        '#[test]\nfn test_stub() {\n    assert!(true);\n}\n',
-    ),
-]
-
-_RSTEST_CARGO_SNIPPET = '\n[dev-dependencies]\nrstest = "0.23"\n'
 
 _REVIEWER_SUMMARY = (
     "### Reviewer brief (stub)\n"
@@ -63,13 +57,9 @@ class StubLLM:
 
     def __init__(self, executor: MigrationExecutor) -> None:
         self._executor = executor
-        self._rust_test_mode = False
         self._fix_test_mode = False
         self._fix_agent_id = ""
         self._fix_test_output = ""
-
-    def set_rust_test_mode(self, enabled: bool = True) -> None:
-        self._rust_test_mode = enabled
 
     def set_fix_test_mode(
         self,
@@ -112,10 +102,6 @@ class StubLLM:
                 artifacts.extend(
                     await self._apply_py_tester_fixes(on_tool_log=on_tool_log)
                 )
-            elif agent_id == "rust_tester":
-                artifacts.extend(
-                    await self._apply_rust_tester_fixes(on_tool_log=on_tool_log)
-                )
             return AgentResult(
                 summary=f"Stub {agent_id} applied test failure fixes",
                 artifacts=artifacts,
@@ -123,8 +109,6 @@ class StubLLM:
             )
 
         files = list(_FAKE_ARTIFACTS.get(agent_id, []))
-        if agent_id == "rust_tester" and self._rust_test_mode:
-            files = _RUST_TESTER_ARTIFACTS
 
         for path, content in files:
             result = await self._executor.call_tool(
@@ -150,36 +134,19 @@ class StubLLM:
         on_tool_log: ToolLogCallback | None = None,
     ) -> list[str]:
         artifacts: list[str] = []
-        output = self._fix_test_output.lower()
-
-        if "rstest" in output:
-            cargo = await self._read_workspace_file("rust/Cargo.toml")
-            if "rstest" not in cargo:
-                updated = cargo.rstrip() + _RSTEST_CARGO_SNIPPET
-                result = await self._executor.call_tool(
-                    "write_file", {"path": "rust/Cargo.toml", "content": updated}
-                )
-                artifacts.append("rust/Cargo.toml")
-                if on_tool_log is not None:
-                    log_result = on_tool_log(
-                        "write_file", {"path": "rust/Cargo.toml"}, result
-                    )
-                    if log_result is not None:
-                        await log_result
-
-        if "fmt" in output or "clippy" in output:
-            content = "pub fn stub() -> i32 {\n    42\n}\n"
-            result = await self._executor.call_tool(
-                "write_file", {"path": "rust/src/lib.rs", "content": content}
-            )
-            artifacts.append("rust/src/lib.rs")
-            if on_tool_log is not None:
-                log_result = on_tool_log(
-                    "write_file", {"path": "rust/src/lib.rs"}, result
-                )
-                if log_result is not None:
-                    await log_result
-
+        lib_path = "rust/src/lib.rs"
+        source = await self._read_workspace_file(lib_path)
+        if "pub fn fixed_stub" in source:
+            return artifacts
+        updated = source.rstrip() + "\n\npub fn fixed_stub() {}\n"
+        result = await self._executor.call_tool(
+            "write_file", {"path": lib_path, "content": updated}
+        )
+        artifacts.append(lib_path)
+        if on_tool_log is not None:
+            log_result = on_tool_log("write_file", {"path": lib_path}, result)
+            if log_result is not None:
+                await log_result
         return artifacts
 
     async def _apply_py_tester_fixes(
@@ -196,7 +163,7 @@ class StubLLM:
             or "flake8" in output.lower()
             or "mypy" in output.lower()
         ):
-            content = 'def test_stub():\n    assert True\n\n'
+            content = 'def test_stub() -> None:\n    assert True\n\n'
             result = await self._executor.call_tool(
                 "write_file",
                 {"path": "py_tests/tests/test_migrated.py", "content": content},
@@ -210,37 +177,6 @@ class StubLLM:
                     await log_result
         return artifacts
 
-    async def _apply_rust_tester_fixes(
-        self,
-        *,
-        on_tool_log: ToolLogCallback | None = None,
-    ) -> list[str]:
-        artifacts: list[str] = []
-        output = self._fix_test_output
-        test_path = _failing_rust_test_path(output)
-        if test_path is None:
-            return artifacts
-
-        prefixed = (
-            test_path
-            if test_path.startswith("rust_tests/")
-            else f"rust_tests/{test_path}"
-        )
-        source = await self._read_workspace_file(prefixed)
-        fixed = _fix_rust_test_syntax(source)
-        if fixed == source:
-            return artifacts
-
-        result = await self._executor.call_tool(
-            "write_file", {"path": prefixed, "content": fixed}
-        )
-        artifacts.append(prefixed)
-        if on_tool_log is not None:
-            log_result = on_tool_log("write_file", {"path": prefixed}, result)
-            if log_result is not None:
-                await log_result
-        return artifacts
-
     async def _read_workspace_file(self, path: str) -> str:
         raw = await self._executor.call_tool("read_file", {"path": path})
         try:
@@ -250,22 +186,3 @@ class StubLLM:
         if payload.get("ok") and "content" in payload:
             return str(payload["content"])
         return raw
-
-
-def _failing_rust_test_path(output: str) -> str | None:
-    for line in output.splitlines():
-        if " --> tests/" in line or " --> tests\\" in line:
-            location = line.split("-->")[1].strip().split(":")[0].strip()
-            return location
-    match = re.search(r"tests[/\\][\w./-]+\.rs", output)
-    if match:
-        return match.group(0)
-    return None
-
-
-def _fix_rust_test_syntax(source: str) -> str:
-    return re.sub(
-        r"'([^'\\]*(?:\\.[^'\\]*)*)'",
-        lambda match: f'"{match.group(1)}"',
-        source,
-    )

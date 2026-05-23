@@ -36,17 +36,14 @@ class MigrationExecutor:
         from orchestrator.migration_layout import (
             PREFIX_PY_TESTS,
             PREFIX_RUST,
-            PREFIX_RUST_TESTS,
             PREFIX_SOURCE,
         )
 
         return [
             MigrationExecutor._read_file_schema(
-                PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_RUST_TESTS
+                PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST
             ),
-            MigrationExecutor._write_file_schema(
-                PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_RUST_TESTS
-            ),
+            MigrationExecutor._write_file_schema(PREFIX_PY_TESTS, PREFIX_RUST),
             MigrationExecutor._execute_command_schema(),
         ]
 
@@ -64,22 +61,20 @@ class MigrationExecutor:
         return tools
 
     @staticmethod
-    def _path_prefixes() -> tuple[str, str, str, str]:
+    def _path_prefixes() -> tuple[str, str, str]:
         from orchestrator.migration_layout import (
             PREFIX_PY_TESTS,
             PREFIX_RUST,
-            PREFIX_RUST_TESTS,
             PREFIX_SOURCE,
         )
 
-        return PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_RUST_TESTS
+        return PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST
 
     @staticmethod
     def _read_file_schema(
         prefix_source: str,
         prefix_py_tests: str,
         prefix_rust: str,
-        prefix_rust_tests: str,
     ) -> dict[str, Any]:
         return {
             "type": "function",
@@ -88,7 +83,7 @@ class MigrationExecutor:
                 "description": (
                     "Read a file. Prefix paths: "
                     f"`{prefix_source}/` (original Python, read-only), "
-                    f"`{prefix_py_tests}/`, `{prefix_rust}/`, `{prefix_rust_tests}/`."
+                    f"`{prefix_py_tests}/`, `{prefix_rust}/`."
                 ),
                 "parameters": {
                     "type": "object",
@@ -106,7 +101,6 @@ class MigrationExecutor:
     def _write_file_schema(
         prefix_py_tests: str,
         prefix_rust: str,
-        prefix_rust_tests: str,
     ) -> dict[str, Any]:
         return {
             "type": "function",
@@ -114,7 +108,7 @@ class MigrationExecutor:
                 "name": "write_file",
                 "description": (
                     "Write a migration artifact. Only "
-                    f"`{prefix_py_tests}/`, `{prefix_rust}/`, `{prefix_rust_tests}/` "
+                    f"`{prefix_py_tests}/` and `{prefix_rust}/` "
                     "are allowed (never write to source/). "
                     f"Python files under `{prefix_py_tests}/` are auto-formatted with "
                     "black and checked with flake8 and mypy; lint results are returned."
@@ -138,8 +132,8 @@ class MigrationExecutor:
             "function": {
                 "name": "execute_command",
                 "description": (
-                    "Run a shell command. Set cwd to py_tests, rust, or rust_tests "
-                    "(or source for read-only inspection)."
+                    "Run a shell command. Set cwd to py_tests, rust, "
+                    "or source for read-only inspection."
                 ),
                 "parameters": {
                     "type": "object",
@@ -147,11 +141,13 @@ class MigrationExecutor:
                         "command": {"type": "string"},
                         "cwd": {
                             "type": "string",
-                            "description": (
-                                "py_tests | rust | rust_tests | source"
-                            ),
+                            "description": "py_tests | rust | source",
                         },
                         "timeout_seconds": {"type": "integer"},
+                        "env": {
+                            "type": "object",
+                            "description": "Optional environment variables to set.",
+                        },
                     },
                     "required": ["command"],
                 },
@@ -203,11 +199,18 @@ class MigrationExecutor:
                 return json.dumps(self._write_file(arguments))
             if name == "execute_command":
                 cwd = self.layout.resolve_command_cwd(arguments.get("cwd"))
+                extra_env = arguments.get("env")
+                env = (
+                    {str(k): str(v) for k, v in extra_env.items()}
+                    if isinstance(extra_env, dict)
+                    else None
+                )
                 result = await execute_command_impl(
                     cwd,
                     arguments["command"],
                     cwd=None,
                     timeout_seconds=arguments.get("timeout_seconds", 300),
+                    env=env,
                 )
                 return json.dumps({"ok": True, **result})
             if name == "get_api_signatures":

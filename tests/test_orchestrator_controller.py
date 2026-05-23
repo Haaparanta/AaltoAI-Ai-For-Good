@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -51,7 +52,7 @@ def test_start_reaches_first_human_review(tmp_path: Path) -> None:
     assert (layout.py_tests_root / "migration_plan.md").is_file()
 
 
-def test_approve_advances_to_next_work_step(tmp_path: Path) -> None:
+def test_approve_advances_to_translate_code(tmp_path: Path) -> None:
     controller = _controller(tmp_path)
 
     async def run() -> WorkflowStep:
@@ -63,14 +64,14 @@ def test_approve_advances_to_next_work_step(tmp_path: Path) -> None:
         assert await controller.approve_review()
         controller.resume()
         for _ in range(120):
-            if controller.state.workflow_step == WorkflowStep.TRANSLATE_TEST:
+            if controller.state.workflow_step == WorkflowStep.TRANSLATE_CODE:
                 break
             await asyncio.sleep(0.05)
         step = controller.state.workflow_step
         await controller.stop()
         return step
 
-    assert _run(run()) == WorkflowStep.TRANSLATE_TEST
+    assert _run(run()) == WorkflowStep.TRANSLATE_CODE
 
 
 def test_feedback_reruns_work_step(tmp_path: Path) -> None:
@@ -145,14 +146,18 @@ def test_step_failure_pauses_for_human_review(tmp_path: Path) -> None:
     assert "Step failed" in controller.state.review.title
 
 
-def test_run_tests_failure_pauses_for_human_review(tmp_path: Path) -> None:
+@patch(
+    "orchestrator.step_runner.build_and_install_wheel",
+    return_value=(True, "wheel installed"),
+)
+def test_run_tests_failure_pauses_for_human_review(
+    _mock_wheel: object, tmp_path: Path
+) -> None:
     layout = MigrationLayout.from_source_project(tmp_path)
     layout.ensure_scaffold()
-    layout.rust_root.joinpath("src").mkdir(parents=True, exist_ok=True)
-    layout.rust_root.joinpath("src/lib.rs").write_text("pub fn x() {}\n", encoding="utf-8")
-    layout.rust_tests_root.joinpath("tests").mkdir(parents=True, exist_ok=True)
-    layout.rust_tests_root.joinpath("tests/broken.rs").write_text(
-        '#[test]\nfn always_fails() { assert_eq!(1, 2); }\n',
+    layout.py_tests_root.joinpath("tests").mkdir(parents=True, exist_ok=True)
+    (layout.py_tests_root / "tests/test_migrated.py").write_text(
+        "def test_fail() -> None:\n    assert False\n",
         encoding="utf-8",
     )
 
@@ -165,6 +170,6 @@ def test_run_tests_failure_pauses_for_human_review(tmp_path: Path) -> None:
         assert controller.state.awaiting_human
         assert controller.state.workflow_step == WorkflowStep.RUN_TESTS
         assert controller.state.review is not None
-        assert "failing" in controller.state.review.summary.lower()
+        assert "fail" in controller.state.review.summary.lower()
 
     _run(run())
