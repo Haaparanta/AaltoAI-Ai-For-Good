@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from executor_mcp.api_signatures import API_SIGNATURES_DIR
+
 PREFIX_SOURCE = "source"
 PREFIX_PY_TESTS = "py_tests"
 PREFIX_RUST = "rust"
@@ -37,6 +39,8 @@ class MigrationLayout:
     def ensure_scaffold(self) -> None:
         """Create migration directories and minimal Rust workspace files."""
         (self.py_tests_root / "tests").mkdir(parents=True, exist_ok=True)
+        (self.py_tests_root / API_SIGNATURES_DIR).mkdir(parents=True, exist_ok=True)
+        self._ensure_python_lint_config()
         (self.rust_root / "src").mkdir(parents=True, exist_ok=True)
         (self.rust_tests_root / "tests").mkdir(parents=True, exist_ok=True)
 
@@ -56,6 +60,32 @@ class MigrationLayout:
             tests_cargo.write_text(
                 f'[package]\nname = "migrated-tests"\nversion = "0.1.0"\nedition = "2021"\n\n'
                 f'[dependencies]\nmigrated = {{ path = "{rust_dep_path.as_posix()}" }}\n',
+                encoding="utf-8",
+            )
+
+    @property
+    def api_signatures_cache_root(self) -> Path:
+        return self.py_tests_root / API_SIGNATURES_DIR
+
+    def _ensure_python_lint_config(self) -> None:
+        flake8_path = self.py_tests_root / ".flake8"
+        if not flake8_path.is_file():
+            flake8_path.write_text(
+                "[flake8]\n"
+                "max-line-length = 88\n"
+                "extend-ignore = E203,W503\n",
+                encoding="utf-8",
+            )
+
+        mypy_path = self.py_tests_root / "mypy.ini"
+        if not mypy_path.is_file():
+            source_name = self.source_root.name
+            mypy_path.write_text(
+                "[mypy]\n"
+                "python_version = 3.10\n"
+                f"mypy_path = ../{source_name}\n"
+                "namespace_packages = True\n"
+                "ignore_missing_imports = False\n",
                 encoding="utf-8",
             )
 

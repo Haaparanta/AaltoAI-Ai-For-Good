@@ -151,7 +151,12 @@ class StubLLM:
         artifacts: list[str] = []
         output = self._fix_test_output
 
-        if "pytest" in output.lower() or "FAILED" in output:
+        if (
+            "pytest" in output.lower()
+            or "FAILED" in output
+            or "flake8" in output.lower()
+            or "mypy" in output.lower()
+        ):
             content = 'def test_stub():\n    assert True\n\n'
             result = await self._executor.call_tool(
                 "write_file",

@@ -12,8 +12,10 @@ from agents.runner import (
     agent_sequence_for_step,
     build_user_message,
     fix_agents_for_cargo_output,
+    fix_agents_for_lint_output,
     fix_agents_for_pytest_output,
 )
+from executor_mcp.python_test_quality import lint_tree, tree_lint_output
 from llm.types import LLMClient
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST_TESTS
@@ -53,7 +55,6 @@ class StepRunner:
         self._executor = executor
         self._llm = llm
         self._on_notify = on_notify
-        self._tools = MigrationExecutor.tool_schemas()
 
     async def _notify(self) -> None:
         if self._on_notify is None:
@@ -67,6 +68,9 @@ class StepRunner:
             return await self._run_cargo_test()
         result = await self._run_agents(step)
         if step == WorkflowStep.CREATE_TEST_PY and result.success:
+            lint_result = await self._run_python_lint_gate()
+            if not lint_result.success:
+                return lint_result
             pytest_result = await self._run_pytest_baseline()
             if not pytest_result.success:
                 return pytest_result
@@ -107,7 +111,7 @@ class StepRunner:
                 agent_id=agent_key,
                 system_prompt=get_system_prompt(agent_key),
                 user_message=user_message,
-                tools=self._tools,
+                tools=MigrationExecutor.tools_for_agent(agent_key),
                 on_tool_log=on_tool_log,
             )
 
@@ -149,6 +153,48 @@ class StepRunner:
         layout.ensure_scaffold()
         self.state.layout = layout
         return layout
+
+    async def _run_python_lint_gate(self) -> StepRunResult:
+        if not self._workspace_has_pytest_files():
+            return StepRunResult(success=True, summary="No Python tests to lint.")
+
+        layout = self._layout()
+        layout.ensure_scaffold()
+        lint_result = lint_tree(
+            layout.py_tests_root,
+            source_root=layout.source_root,
+        )
+        if lint_result.lint_passed:
+            self.state.last_agent_summary = "Python test lint passed (flake8, mypy)."
+            return StepRunResult(success=True, summary=self.state.last_agent_summary)
+
+        output = tree_lint_output(lint_result)
+        self.state.append_log(
+            "Orchestrator: flake8/mypy failed — dispatching Tester to fix Python tests"
+        )
+        await self._dispatch_fix_agents(
+            fix_agents_for_lint_output(output),
+            step=WorkflowStep.CREATE_TEST_PY,
+            failure_output=output,
+            failure_label="flake8/mypy",
+            message_phase="lint_fix",
+        )
+        lint_result2 = lint_tree(
+            layout.py_tests_root,
+            source_root=layout.source_root,
+        )
+        if lint_result2.lint_passed:
+            self.state.last_agent_summary = "Python test lint passed after fix."
+            return StepRunResult(success=True, summary=self.state.last_agent_summary)
+
+        self.state.last_agent_summary = (
+            "flake8/mypy still failing after fix attempt. See activity log."
+        )
+        return StepRunResult(
+            success=False,
+            summary=self.state.last_agent_summary,
+            allow_advance=False,
+        )
 
     async def _run_pytest_baseline(self) -> StepRunResult:
         if not self._workspace_has_pytest_files():
@@ -337,7 +383,7 @@ class StepRunner:
                 agent_id=fix_agent_key,
                 system_prompt=get_system_prompt(fix_agent_key),
                 user_message=fix_message,
-                tools=self._tools,
+                tools=MigrationExecutor.tools_for_agent(fix_agent_key),
                 on_tool_log=on_fix_tool_log,
             )
             if callable(set_fix_test_mode):
