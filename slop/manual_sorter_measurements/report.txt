@@ -1,0 +1,23 @@
+Performance report: manual_sorter
+Generated: 2026-05-23T11:17:08.761046+00:00
+
+Both backends run from installed wheels (Python source wheel vs Rust PyO3 wheel).
+
+Artifacts: Python source 761 B; Python wheel 1.5 KiB (0.47s build); Rust wheel 198.9 KiB (0.00s build); Rust native extension 472.5 KiB.
+
+bubble_sort_large (small): Python leads with 0.20× speedup (Python 0.15ms vs Rust 0.74ms). Timing CV Python 12.3% vs Rust 14.7%. Mean peak RSS ratio Rust/Python: 1.01×.
+bubble_sort_large (medium): Rust leads with 8.29× speedup (Python 7.09ms vs Rust 0.86ms). Timing CV Python 2.3% vs Rust 6.8%. Mean peak RSS ratio Rust/Python: 1.02×.
+bubble_sort_large (large): Rust leads with 94.68× speedup (Python 852.33ms vs Rust 9.00ms). Timing CV Python 3.2% vs Rust 6.2%. Mean peak RSS ratio Rust/Python: 1.04×.
+bubble_sort_large (xlarge): Rust leads with 65.79× speedup (Python 14058.09ms vs Rust 213.68ms). Timing CV Python 2.3% vs Rust 3.6%. Mean peak RSS ratio Rust/Python: 1.37×.
+bubble_sort_medium (small): Python leads with 0.20× speedup (Python 0.15ms vs Rust 0.74ms). Timing CV Python 12.3% vs Rust 14.7%. Mean peak RSS ratio Rust/Python: 1.01×.
+bubble_sort_medium (medium): Rust leads with 8.29× speedup (Python 7.09ms vs Rust 0.86ms). Timing CV Python 2.3% vs Rust 6.8%. Mean peak RSS ratio Rust/Python: 1.02×.
+bubble_sort_medium (large): Rust leads with 94.68× speedup (Python 852.33ms vs Rust 9.00ms). Timing CV Python 3.2% vs Rust 6.2%. Mean peak RSS ratio Rust/Python: 1.04×.
+bubble_sort_medium (xlarge): Rust leads with 65.79× speedup (Python 14058.09ms vs Rust 213.68ms). Timing CV Python 2.3% vs Rust 3.6%. Mean peak RSS ratio Rust/Python: 1.37×.
+bubble_sort_small (small): Python leads with 0.20× speedup (Python 0.15ms vs Rust 0.74ms). Timing CV Python 12.3% vs Rust 14.7%. Mean peak RSS ratio Rust/Python: 1.01×.
+bubble_sort_small (medium): Rust leads with 8.29× speedup (Python 7.09ms vs Rust 0.86ms). Timing CV Python 2.3% vs Rust 6.8%. Mean peak RSS ratio Rust/Python: 1.02×.
+bubble_sort_small (large): Rust leads with 94.68× speedup (Python 852.33ms vs Rust 9.00ms). Timing CV Python 3.2% vs Rust 6.2%. Mean peak RSS ratio Rust/Python: 1.04×.
+bubble_sort_small (xlarge): Rust leads with 65.79× speedup (Python 14058.09ms vs Rust 213.68ms). Timing CV Python 2.3% vs Rust 3.6%. Mean peak RSS ratio Rust/Python: 1.37×.
+bubble_sort_xlarge (small): Python leads with 0.20× speedup (Python 0.15ms vs Rust 0.74ms). Timing CV Python 12.3% vs Rust 14.7%. Mean peak RSS ratio Rust/Python: 1.01×.
+bubble_sort_xlarge (medium): Rust leads with 8.29× speedup (Python 7.09ms vs Rust 0.86ms). Timing CV Python 2.3% vs Rust 6.8%. Mean peak RSS ratio Rust/Python: 1.02×.
+bubble_sort_xlarge (large): Rust leads with 94.68× speedup (Python 852.33ms vs Rust 9.00ms). Timing CV Python 3.2% vs Rust 6.2%. Mean peak RSS ratio Rust/Python: 1.04×.
+bubble_sort_xlarge (xlarge): Rust leads with 65.79× speedup (Python 14058.09ms vs Rust 213.68ms). Timing CV Python 2.3% vs Rust 3.6%. Mean peak RSS ratio Rust/Python: 1.37×.

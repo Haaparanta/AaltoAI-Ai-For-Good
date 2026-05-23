@@ -1,0 +1,23 @@
+{
+  "project": "manual_sorter",
+  "generated_at": "2026-05-23T11:17:09.328081+00:00",
+  "config": {
+    "iterations": 100,
+    "warmup": 5,
+    "quick": false,
+    "python_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/manual_sorter_measurements/.python_build/wheels/manual_sorter_python_bench-0.1.0-py3-none-any.whl",
+    "rust_wheel": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/manual_sorter_migration_rust/target/wheels/main-0.1.0-cp312-cp312-macosx_11_0_arm64.whl"
+  },
+  "artifacts": {
+    "python_source_bytes": 761,
+    "python_wheel_bytes": 1567,
+    "python_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/manual_sorter_measurements/.python_build/wheels/manual_sorter_python_bench-0.1.0-py3-none-any.whl",
+    "python_build_seconds": 0.47115300013683736,
+    "rust_wheel_bytes": 203675,
+    "rust_native_extension_bytes": 483840,
+    "rust_wheel_path": "/Users/vesahaaparanta/Desktop/AaltoAI-Ai-For-Good/slop/manual_sorter_migration_rust/target/wheels/main-0.1.0-cp312-cp312-macosx_11_0_arm64.whl",
+    "rust_build_seconds": 0.0
+  },
+  "case_count": 4,
+  "sample_count": 800
+}
