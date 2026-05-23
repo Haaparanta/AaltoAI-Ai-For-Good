@@ -11,15 +11,16 @@ from agents import get_system_prompt
 from agents.runner import (
     agent_sequence_for_step,
     build_user_message,
-    fix_agents_for_cargo_output,
     fix_agents_for_lint_output,
+    fix_agents_for_migration_pytest_output,
     fix_agents_for_pytest_output,
     review_step_for_work_step,
 )
 from executor_mcp.python_test_quality import lint_tree, tree_lint_output
+from executor_mcp.rust_wheel import build_and_install_wheel
 from llm.types import LLMClient
 from orchestrator.migration_executor import MigrationExecutor
-from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_RUST_TESTS
+from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST
 from orchestrator.models import AgentId, AgentStatus, WorkflowStep
 from orchestrator.state import OrchestratorState
 
@@ -60,7 +61,7 @@ class StepRunner:
 
     async def run(self, step: WorkflowStep) -> StepRunResult:
         if step == WorkflowStep.RUN_TESTS:
-            return await self._run_cargo_test()
+            return await self._run_migration_tests()
         result = await self._run_agents(step)
         if step == WorkflowStep.CREATE_TEST_PY and result.success:
             lint_result = await self._run_python_lint_gate()
@@ -76,10 +77,6 @@ class StepRunner:
         return result
 
     async def _run_agents(self, step: WorkflowStep) -> StepRunResult:
-        set_rust_test_mode = getattr(self._llm, "set_rust_test_mode", None)
-        if callable(set_rust_test_mode):
-            set_rust_test_mode(step == WorkflowStep.TRANSLATE_TEST)
-
         feedback = self.state.last_user_feedback
         summaries: list[str] = []
         all_artifacts: list[str] = []
@@ -199,7 +196,7 @@ class StepRunner:
         if not self._workspace_has_pytest_files():
             return StepRunResult(success=True, summary="No Python tests to verify.")
 
-        exit_code, output = await self._execute_pytest()
+        exit_code, output = await self._execute_pytest(baseline=True)
         if exit_code == 0:
             self.state.last_agent_summary = "Python baseline tests passed (pytest)."
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
@@ -214,7 +211,7 @@ class StepRunner:
             failure_label="pytest",
             message_phase="pytest_fix",
         )
-        exit_code2, _output2 = await self._execute_pytest()
+        exit_code2, _output2 = await self._execute_pytest(baseline=True)
         if exit_code2 == 0:
             self.state.last_agent_summary = "Python tests passed after fix."
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
@@ -228,17 +225,36 @@ class StepRunner:
             allow_advance=False,
         )
 
-    async def _run_cargo_test(self) -> StepRunResult:
-        py_result = await self._run_pytest_baseline()
-        if not py_result.success:
-            return py_result
+    async def _run_migration_tests(self) -> StepRunResult:
+        if not self._workspace_has_pytest_files():
+            return StepRunResult(success=True, summary="No Python tests to verify.")
 
-        exit_code, output = await self._execute_cargo_test()
+        layout = self._layout()
+        layout.ensure_scaffold()
+
+        self.state.set_agent(AgentId.EXECUTOR, AgentStatus.RUNNING, detail="maturin build")
+        await self._notify()
+        self.state.append_log("Executor: building and installing Rust wheel")
+        wheel_ok, wheel_output = build_and_install_wheel(layout.rust_root)
+        if wheel_output.strip():
+            for line in wheel_output.strip().splitlines()[-15:]:
+                self.state.append_log(f"  {line}")
+        if not wheel_ok:
+            self.state.set_agent(AgentId.EXECUTOR, AgentStatus.ERROR, detail="Wheel build failed")
+            self.state.last_agent_summary = wheel_output[-_MAX_OUTPUT:] or "Wheel build failed"
+            await self._notify()
+            return StepRunResult(
+                success=False,
+                summary=self.state.last_agent_summary,
+                allow_advance=False,
+            )
+
+        exit_code, output = await self._execute_pytest(baseline=False)
         if exit_code == 0:
             self.state.set_agent(
                 AgentId.EXECUTOR, AgentStatus.COMPLETED, detail="Tests passed"
             )
-            self.state.last_agent_summary = "All Rust tests passed."
+            self.state.last_agent_summary = "Migration pytest passed against installed wheel."
             await self._notify()
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
@@ -248,22 +264,29 @@ class StepRunner:
         self.state.last_agent_summary = output[-_MAX_OUTPUT:] if output else "Tests failed"
         await self._notify()
 
-        fix_agents = fix_agents_for_cargo_output(output)
+        fix_agents = fix_agents_for_migration_pytest_output(output)
         agent_names = ", ".join(
             self.state.agents[AgentId.from_key(key)].display_name for key in fix_agents
         )
         self.state.append_log(
-            f"Orchestrator: cargo test failed — dispatching {agent_names} to fix errors"
+            f"Orchestrator: migration pytest failed — dispatching {agent_names}"
         )
         current_output = output
+        exit_code2 = exit_code
         for fix_agent_key in fix_agents:
             await self._dispatch_fix_agents(
                 (fix_agent_key,),
                 step=WorkflowStep.RUN_TESTS,
                 failure_output=current_output,
-                failure_label="cargo test",
+                failure_label="migration pytest",
             )
-            exit_code2, current_output = await self._execute_cargo_test(retry=True)
+            wheel_ok, wheel_output = build_and_install_wheel(layout.rust_root)
+            if not wheel_ok:
+                current_output = wheel_output
+                break
+            exit_code2, current_output = await self._execute_pytest(
+                baseline=False, retry=True
+            )
             if exit_code2 == 0:
                 break
 
@@ -271,15 +294,15 @@ class StepRunner:
             self.state.set_agent(
                 AgentId.EXECUTOR, AgentStatus.COMPLETED, detail="Tests passed"
             )
-            self.state.last_agent_summary = "Tests passed after fix."
+            self.state.last_agent_summary = "Migration pytest passed after fix."
             return StepRunResult(success=True, summary=self.state.last_agent_summary)
 
         self.state.append_log(
-            "Orchestrator: tests still failing after fix attempt — awaiting human review",
+            "Orchestrator: migration tests still failing after fix attempt — awaiting human review",
             level="error",
         )
         self.state.last_agent_summary = (
-            "Tests still failing after fix attempt. See activity log."
+            "Migration tests still failing after fix attempt. See activity log."
         )
         return StepRunResult(
             success=False,
@@ -296,22 +319,25 @@ class StepRunner:
                 return True
         return False
 
-    async def _execute_pytest(self) -> tuple[int, str]:
-        self.state.set_agent(AgentId.EXECUTOR, AgentStatus.RUNNING, detail="pytest")
+    async def _execute_pytest(
+        self, *, baseline: bool = True, retry: bool = False
+    ) -> tuple[int, str]:
+        label = "pytest"
+        if baseline:
+            label = "pytest baseline" if not retry else "pytest baseline retry"
+        else:
+            label = "migration pytest" if not retry else "migration pytest retry"
+        self.state.set_agent(AgentId.EXECUTOR, AgentStatus.RUNNING, detail=label)
         await self._notify()
-        raw = await self._executor.call_tool(
-            "execute_command",
-            {"command": "pytest -q", "cwd": PREFIX_PY_TESTS},
+        layout = self._layout()
+        env = (
+            {"PYTHONPATH": str(layout.source_root)}
+            if baseline
+            else {"PYTHONPATH": ""}
         )
-        return self._parse_command_output(raw, label="pytest")
-
-    async def _execute_cargo_test(self, *, retry: bool = False) -> tuple[int, str]:
-        label = "cargo test retry" if retry else "cargo test"
-        self.state.set_agent(AgentId.EXECUTOR, AgentStatus.RUNNING, detail="cargo test")
-        await self._notify()
         raw = await self._executor.call_tool(
             "execute_command",
-            {"command": "cargo test", "cwd": PREFIX_RUST_TESTS},
+            {"command": "pytest -q", "cwd": PREFIX_PY_TESTS, "env": env},
         )
         return self._parse_command_output(raw, label=label)
 

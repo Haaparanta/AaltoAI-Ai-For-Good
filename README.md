@@ -12,7 +12,6 @@ flowchart TB
 
     Orch --> Analyzer
     Orch --> PyTester[Py Tester]
-    Orch --> RustTester[Rust Tester]
     Orch --> Scaffolder
     Orch --> Translator
     Orch --> Reviewer
@@ -20,14 +19,12 @@ flowchart TB
 
     Analyzer --> LLM
     PyTester --> LLM
-    RustTester --> LLM
     Scaffolder --> LLM
     Translator --> LLM
     Reviewer --> LLM
 
     Analyzer --> ME[Migration Executor]
     PyTester --> ME
-    RustTester --> ME
     Scaffolder --> ME
     Translator --> ME
     Reviewer --> ME
@@ -35,22 +32,20 @@ flowchart TB
 
     ME --> Source[source/ read-only]
     ME --> Py[py_tests/]
-    ME --> Ru[rust/]
-    ME --> RT[rust_tests/]
+    ME --> Ru[rust/ PyO3]
 ```
 
-**Agents:** Analyzer (plan), Py Tester (Python tests), Rust Tester (Rust tests), Scaffolder (crate skeleton), Translator (Rust code), Reviewer (pre-review briefs), Executor (`pytest` / `cargo test`).
+**Agents:** Analyzer (plan), Py Tester (pytest contract), Scaffolder (PyO3 skeleton), Translator (PyO3 implementation), Reviewer (pre-review briefs), Executor (`maturin` + `pytest`).
 
 **On disk** (for `myproject/` at `/path/to/`):
 
 ```text
 myproject/                      # read-only
 myproject_migration_py_tests/   # migration_plan.md, pytest
-myproject_migration_rust/       # Cargo.toml, src/
-myproject_migration_rust_tests/ # integration tests
+myproject_migration_rust/       # Cargo.toml, pyproject.toml, PyO3 src/
 ```
 
-Tool paths: `source/`, `py_tests/`, `rust/`, `rust_tests/` (writes to `source/` are blocked).
+Tool paths: `source/`, `py_tests/`, `rust/` (writes to `source/` are blocked).
 
 ## Workflow
 
@@ -63,18 +58,15 @@ sequenceDiagram
 
     U->>O: Select LLM, then start (r)
     O->>A: 1 Create Python tests → py_tests/
-    A->>E: pytest
+    A->>E: pytest against source
     O->>U: 2 Review
     U-->>O: Approve / feedback
-    O->>A: 3 Translate tests → rust_tests/
+    O->>A: 3 Translate code → PyO3 rust/
     O->>U: 4 Review
     U-->>O: Approve / feedback
-    O->>A: 5 Translate code → rust/
-    O->>U: 6 Review
-    U-->>O: Approve / feedback
-    O->>E: 7 cargo test
+    O->>E: 5 maturin build, pip install, pytest
     alt failure
-        O->>A: Fix (Tester / Translator)
+        O->>A: Fix (Translator)
         E->>O: Retry
     end
     O->>U: Done or pause for review
@@ -90,7 +82,7 @@ sequenceDiagram
 
 ## Setup
 
-**Requires:** [uv](https://docs.astral.sh/uv/), `pytest`, `cargo`, and at least one LLM provider.
+**Requires:** [uv](https://docs.astral.sh/uv/), `pytest`, `cargo`, `maturin`, and at least one LLM provider.
 
 | Variable | When |
 |----------|------|

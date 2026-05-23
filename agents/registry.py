@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from agents.analyzer import SYSTEM_PROMPT as ANALYZER_SYSTEM_PROMPT
 from agents.py_tester import SYSTEM_PROMPT as PY_TESTER_SYSTEM_PROMPT
 from agents.reviewer import SYSTEM_PROMPT as REVIEWER_SYSTEM_PROMPT
-from agents.rust_tester import SYSTEM_PROMPT as RUST_TESTER_SYSTEM_PROMPT
 from agents.scaffolder import SYSTEM_PROMPT as SCAFFOLDER_SYSTEM_PROMPT
 from agents.translator import SYSTEM_PROMPT as TRANSLATOR_SYSTEM_PROMPT
 
@@ -44,21 +43,15 @@ _WORKFLOW_AGENTS: tuple[AgentSpec, ...] = (
         prompt=PY_TESTER_SYSTEM_PROMPT,
     ),
     AgentSpec(
-        id="rust_tester",
-        display_name="Rust Tester",
-        role="Translates and fixes Rust tests",
-        prompt=RUST_TESTER_SYSTEM_PROMPT,
-    ),
-    AgentSpec(
         id="scaffolder",
         display_name="Scaffolder",
-        role="Scaffolds Rust crate layout",
+        role="Scaffolds PyO3 crate layout",
         prompt=SCAFFOLDER_SYSTEM_PROMPT,
     ),
     AgentSpec(
         id="translator",
         display_name="Translator",
-        role="Translates Python to Rust",
+        role="Translates Python to PyO3",
         prompt=TRANSLATOR_SYSTEM_PROMPT,
     ),
     AgentSpec(
@@ -91,7 +84,6 @@ __all__ = [
     "LLM_AGENT_IDS",
     "PY_TESTER_SYSTEM_PROMPT",
     "REVIEWER_SYSTEM_PROMPT",
-    "RUST_TESTER_SYSTEM_PROMPT",
     "SCAFFOLDER_SYSTEM_PROMPT",
     "SYSTEM_PROMPTS",
     "TRANSLATOR_SYSTEM_PROMPT",

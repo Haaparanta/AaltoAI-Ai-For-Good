@@ -34,14 +34,12 @@ StateCallback = Callable[[OrchestratorState], Awaitable[None] | None]
 
 _NEXT_AFTER_WORK: dict[WorkflowStep, WorkflowStep] = {
     WorkflowStep.CREATE_TEST_PY: WorkflowStep.REVIEW_PLAN_PY,
-    WorkflowStep.TRANSLATE_TEST: WorkflowStep.REVIEW_RUST_TESTS,
     WorkflowStep.TRANSLATE_CODE: WorkflowStep.REVIEW_RUST_CODE,
     WorkflowStep.RUN_TESTS: WorkflowStep.DONE,
 }
 
 _NEXT_AFTER_APPROVE: dict[WorkflowStep, WorkflowStep] = {
-    WorkflowStep.REVIEW_PLAN_PY: WorkflowStep.TRANSLATE_TEST,
-    WorkflowStep.REVIEW_RUST_TESTS: WorkflowStep.TRANSLATE_CODE,
+    WorkflowStep.REVIEW_PLAN_PY: WorkflowStep.TRANSLATE_CODE,
     WorkflowStep.REVIEW_RUST_CODE: WorkflowStep.RUN_TESTS,
 }
 
@@ -111,7 +109,6 @@ class OrchestratorController:
         )
         self.state.append_log(f"Python tests: {self._layout.py_tests_root}")
         self.state.append_log(f"Rust code: {self._layout.rust_root}")
-        self.state.append_log(f"Rust tests: {self._layout.rust_tests_root}")
         if self.state.llm_display:
             self.state.append_log(f"LLM: {self.state.llm_display}")
         await self._notify()
@@ -149,7 +146,7 @@ class OrchestratorController:
             return True
         if step == WorkflowStep.RUN_TESTS:
             self.state.workflow_step = WorkflowStep.RUN_TESTS
-            self.state.append_log("Retrying: 7 — Run Rust tests")
+            self.state.append_log("Retrying: 5 — Build wheel & run pytest")
             await self._notify()
             self._pause.set()
             return True
@@ -176,10 +173,8 @@ class OrchestratorController:
             work_step = review_step
         elif review_step == WorkflowStep.RUN_TESTS:
             lowered = text.lower()
-            if "python" in lowered or "pytest" in lowered:
+            if "python test" in lowered or "pytest" in lowered and "rust" not in lowered:
                 work_step = WorkflowStep.CREATE_TEST_PY
-            elif "rust test" in lowered or "test.rs" in lowered or "tests/" in lowered:
-                work_step = WorkflowStep.TRANSLATE_TEST
             else:
                 work_step = WorkflowStep.TRANSLATE_CODE
         else:
@@ -240,10 +235,10 @@ class OrchestratorController:
         await self._notify()
 
     async def _enter_test_failure_review(self, result: StepRunResult) -> None:
-        summary = result.summary or "Rust tests failed."
+        summary = result.summary or "Migration pytest failed."
         self.state.awaiting_human = True
         self.state.review = ReviewContext(
-            title="Rust tests failed",
+            title="Migration tests failed",
             summary=summary,
         )
         self.state.reset_agents_to_idle()

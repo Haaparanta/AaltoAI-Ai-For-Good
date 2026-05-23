@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +22,19 @@ def _resolve_cwd(workspace_root: Path, cwd: str | None) -> Path:
     return resolved
 
 
+def _merge_env(extra: dict[str, str] | None) -> dict[str, str]:
+    env = os.environ.copy()
+    if extra:
+        env.update(extra)
+    return env
+
+
 async def execute_command_impl(
     workspace_root: Path,
     command: str,
     cwd: str | None = None,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run a shell command and return stdout, stderr, and exit code."""
     if not command.strip():
@@ -36,6 +45,7 @@ async def execute_command_impl(
     process = await asyncio.create_subprocess_shell(
         command,
         cwd=workdir,
+        env=_merge_env(env),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

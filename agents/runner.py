@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_RUST_TESTS, PREFIX_SOURCE
+from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_SOURCE
 from orchestrator.models import WorkflowStep
 
 _FEEDBACK_PREFIX = "User feedback from the last review (apply these changes):\n"
@@ -59,69 +59,48 @@ def build_user_message(
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
             f"Phase: CREATE TEST (Python).\n{task}"
         )
-    if step == WorkflowStep.TRANSLATE_TEST:
-        return (
-            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
-            "Phase: TRANSLATE TEST (Python pytest → Rust tests).\n"
-            f"Use `{PREFIX_PY_TESTS}/migration_plan.md` and approved Python tests.\n"
-            f"Write Rust integration tests under `{PREFIX_RUST_TESTS}/tests/`."
-        )
     if step == WorkflowStep.TRANSLATE_CODE and message_phase == "clippy_fix":
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
             "Phase: FIX AFTER RUST QUALITY CHECK FAILURE.\n"
             f"`cargo fmt --check` and/or `cargo clippy` failed under `{PREFIX_RUST}/`. "
-            "Fix formatting, lints, and compile issues in Rust implementation and "
-            "Cargo.toml. Do not edit rust_tests/."
+            "Fix formatting, lints, and compile issues in the PyO3 implementation, "
+            "Cargo.toml, and pyproject.toml."
         )
     if step == WorkflowStep.TRANSLATE_CODE:
         if agent_id == "scaffolder":
             task = (
-                f"Read `{PREFIX_PY_TESTS}/migration_plan.md` and approved Rust tests under "
-                f"`{PREFIX_RUST_TESTS}/`. Scaffold `{PREFIX_RUST}/Cargo.toml` and "
-                f"`{PREFIX_RUST}/src/` with module stubs that compile. Run `cargo check` "
-                "with cwd rust."
+                f"Read `{PREFIX_PY_TESTS}/migration_plan.md` and approved pytest under "
+                f"`{PREFIX_PY_TESTS}/tests/`. Scaffold `{PREFIX_RUST}/` as a "
+                "maturin-buildable PyO3 project (Cargo.toml, pyproject.toml, src/) "
+                "with `#[pymodule]` stubs matching the public Python API. "
+                "Run `cargo check` with cwd rust."
             )
         else:
             task = (
                 f"Use migration plan, Scaffolder output under `{PREFIX_RUST}/`, "
-                f"`{PREFIX_RUST_TESTS}/` tests, and `{PREFIX_SOURCE}/` sources.\n"
-                f"Implement `{PREFIX_RUST}/src/` so cargo test in rust_tests passes."
+                f"approved pytest under `{PREFIX_PY_TESTS}/tests/`, and `{PREFIX_SOURCE}/` sources.\n"
+                f"Implement PyO3 bindings so the approved pytest suite passes after wheel install."
             )
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
-            f"Phase: TRANSLATE CODE (Python → Rust implementation).\n{task}"
+            f"Phase: TRANSLATE CODE (Python → PyO3 extension).\n{task}"
         )
     if step == WorkflowStep.RUN_TESTS:
-        if agent_id == "translator":
-            task = (
-                "cargo test failed. Fix Rust implementation and build config under "
-                f"`{PREFIX_RUST}/` (src/, Cargo.toml, dependencies). Do not edit "
-                f"`{PREFIX_RUST_TESTS}/` unless Rust Tester already ran."
-            )
-        elif agent_id == "rust_tester":
-            task = (
-                "Tests failed. Fix Rust tests under "
-                f"`{PREFIX_RUST_TESTS}/`. Run cargo test (cwd rust_tests)."
-            )
-        else:
-            task = (
-                "Tests failed. Fix Python tests under "
-                f"`{PREFIX_PY_TESTS}/`. Run pytest (cwd py_tests)."
-            )
+        task = (
+            "pytest failed against the installed Rust wheel. Fix the PyO3 "
+            f"implementation and build config under `{PREFIX_RUST}/` so the same "
+            f"pytest suite under `{PREFIX_PY_TESTS}/tests/` passes when the wheel "
+            "is installed. Do not weaken tests."
+        )
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
-            f"Phase: FIX AFTER TEST FAILURE.\n{task}"
+            f"Phase: FIX AFTER MIGRATION TEST FAILURE.\n{task}"
         )
-    if step in (
-        WorkflowStep.REVIEW_PLAN_PY,
-        WorkflowStep.REVIEW_RUST_TESTS,
-        WorkflowStep.REVIEW_RUST_CODE,
-    ):
+    if step in (WorkflowStep.REVIEW_PLAN_PY, WorkflowStep.REVIEW_RUST_CODE):
         focus = {
             WorkflowStep.REVIEW_PLAN_PY: "migration plan and Python baseline tests",
-            WorkflowStep.REVIEW_RUST_TESTS: "Rust tests vs the approved Python baseline",
-            WorkflowStep.REVIEW_RUST_CODE: "Rust implementation vs tests and migration plan",
+            WorkflowStep.REVIEW_RUST_CODE: "PyO3 implementation vs pytest contract and migration plan",
         }[step]
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
@@ -130,28 +109,6 @@ def build_user_message(
             "for the human reviewer. Do not modify any files."
         )
     raise ValueError(f"No user message for workflow step: {step}")
-
-
-def fix_agents_for_cargo_output(output: str) -> tuple[str, ...]:
-    """Ordered agents to run after a cargo test failure."""
-    lowered = output.lower()
-    agents: list[str] = []
-
-    rust_test_failure = _cargo_failure_in_rust_tests(output)
-    rust_code_failure = _cargo_failure_in_rust_code(output)
-
-    if rust_test_failure:
-        agents.append("rust_tester")
-    if rust_code_failure:
-        agents.append("translator")
-
-    if not agents:
-        if "panicked at" in lowered or "assertion" in lowered or "assert_eq!" in lowered:
-            agents.extend(["translator", "rust_tester"])
-        else:
-            agents.append("translator")
-
-    return _dedupe_agents(agents)
 
 
 def fix_agents_for_pytest_output(_output: str) -> tuple[str, ...]:
@@ -164,54 +121,15 @@ def fix_agents_for_lint_output(_output: str) -> tuple[str, ...]:
     return ("py_tester",)
 
 
-def _dedupe_agents(agents: list[str]) -> tuple[str, ...]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for agent in agents:
-        if agent not in seen:
-            seen.add(agent)
-            ordered.append(agent)
-    return tuple(ordered)
-
-
-def _cargo_failure_in_rust_tests(output: str) -> bool:
-    for line in output.splitlines():
-        if "tests/" in line and (
-            " --> " in line
-            or "character literal" in line
-            or "unknown prefix" in line
-            or "unterminated" in line
-            or "error:" in line.lower()
-        ):
-            return True
-    return False
-
-
-def _cargo_failure_in_rust_code(output: str) -> bool:
-    lowered = output.lower()
-    if " --> src/" in output or " --> src\\" in output:
-        return True
-    if _cargo_failure_in_rust_tests(output):
-        if "rstest" in lowered or "dev-dependencies" in lowered:
-            return True
-        return False
-    code_markers = (
-        "unresolved import",
-        "unresolved module",
-        "unlinked crate",
-        "could not compile",
-        "error[e0433]",
-        "error[e0432]",
-    )
-    return any(marker in lowered for marker in code_markers)
+def fix_agents_for_migration_pytest_output(_output: str) -> tuple[str, ...]:
+    """Agents to run after pytest failure against the installed Rust wheel."""
+    return ("translator",)
 
 
 def agent_sequence_for_step(step: WorkflowStep) -> tuple[str, ...]:
     """Return agent_id strings to run sequentially for a work step."""
     if step == WorkflowStep.CREATE_TEST_PY:
         return ("analyzer", "py_tester")
-    if step == WorkflowStep.TRANSLATE_TEST:
-        return ("rust_tester",)
     if step == WorkflowStep.TRANSLATE_CODE:
         return ("scaffolder", "translator")
     raise ValueError(f"No agent sequence for workflow step: {step}")
@@ -221,7 +139,6 @@ def review_step_for_work_step(step: WorkflowStep) -> WorkflowStep | None:
     """Return the human review step that follows a successful work step."""
     mapping = {
         WorkflowStep.CREATE_TEST_PY: WorkflowStep.REVIEW_PLAN_PY,
-        WorkflowStep.TRANSLATE_TEST: WorkflowStep.REVIEW_RUST_TESTS,
         WorkflowStep.TRANSLATE_CODE: WorkflowStep.REVIEW_RUST_CODE,
     }
     return mapping.get(step)

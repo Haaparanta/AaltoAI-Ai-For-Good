@@ -16,7 +16,6 @@ class AgentId(str, Enum):
     ORCHESTRATOR = "orchestrator"
     ANALYZER = "analyzer"
     PY_TESTER = "py_tester"
-    RUST_TESTER = "rust_tester"
     SCAFFOLDER = "scaffolder"
     TRANSLATOR = "translator"
     REVIEWER = "reviewer"
@@ -45,13 +44,11 @@ class AgentStatus(str, Enum):
 
 
 class WorkflowStep(str, Enum):
-    """Six-step migration pipeline from README (plus idle/done)."""
+    """Five-step migration pipeline (plus idle/done)."""
 
     IDLE = "idle"
     CREATE_TEST_PY = "create_test_py"
     REVIEW_PLAN_PY = "review_plan_py"
-    TRANSLATE_TEST = "translate_test"
-    REVIEW_RUST_TESTS = "review_rust_tests"
     TRANSLATE_CODE = "translate_code"
     REVIEW_RUST_CODE = "review_rust_code"
     RUN_TESTS = "run_tests"
@@ -74,28 +71,23 @@ _STEP_LABELS: dict[WorkflowStep, str] = {
     WorkflowStep.IDLE: "Ready",
     WorkflowStep.CREATE_TEST_PY: "1 — Create Python tests",
     WorkflowStep.REVIEW_PLAN_PY: "2 — Review plan & Python tests",
-    WorkflowStep.TRANSLATE_TEST: "3 — Translate tests to Rust",
-    WorkflowStep.REVIEW_RUST_TESTS: "4 — Review Rust tests",
-    WorkflowStep.TRANSLATE_CODE: "5 — Translate code to Rust",
-    WorkflowStep.REVIEW_RUST_CODE: "6 — Review Rust code",
-    WorkflowStep.RUN_TESTS: "7 — Run Rust tests",
+    WorkflowStep.TRANSLATE_CODE: "3 — Translate code to Rust (PyO3)",
+    WorkflowStep.REVIEW_RUST_CODE: "4 — Review Rust source",
+    WorkflowStep.RUN_TESTS: "5 — Build wheel & run pytest",
     WorkflowStep.DONE: "Migration complete",
 }
 
 _STEP_NUMBERS: dict[WorkflowStep, int] = {
     WorkflowStep.CREATE_TEST_PY: 1,
     WorkflowStep.REVIEW_PLAN_PY: 2,
-    WorkflowStep.TRANSLATE_TEST: 3,
-    WorkflowStep.REVIEW_RUST_TESTS: 4,
-    WorkflowStep.TRANSLATE_CODE: 5,
-    WorkflowStep.REVIEW_RUST_CODE: 6,
-    WorkflowStep.RUN_TESTS: 7,
+    WorkflowStep.TRANSLATE_CODE: 3,
+    WorkflowStep.REVIEW_RUST_CODE: 4,
+    WorkflowStep.RUN_TESTS: 5,
 }
 
 _HUMAN_REVIEW_STEPS = frozenset(
     {
         WorkflowStep.REVIEW_PLAN_PY,
-        WorkflowStep.REVIEW_RUST_TESTS,
         WorkflowStep.REVIEW_RUST_CODE,
     }
 )
@@ -151,7 +143,6 @@ class ReviewContext:
 _WORK_STEPS = frozenset(
     {
         WorkflowStep.CREATE_TEST_PY,
-        WorkflowStep.TRANSLATE_TEST,
         WorkflowStep.TRANSLATE_CODE,
         WorkflowStep.RUN_TESTS,
     }
@@ -159,7 +150,6 @@ _WORK_STEPS = frozenset(
 
 REVIEW_TO_WORK: dict[WorkflowStep, WorkflowStep] = {
     WorkflowStep.REVIEW_PLAN_PY: WorkflowStep.CREATE_TEST_PY,
-    WorkflowStep.REVIEW_RUST_TESTS: WorkflowStep.TRANSLATE_TEST,
     WorkflowStep.REVIEW_RUST_CODE: WorkflowStep.TRANSLATE_CODE,
 }
 

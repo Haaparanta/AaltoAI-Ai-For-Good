@@ -14,7 +14,15 @@ def test_sibling_directory_names(workspace_root: Path) -> None:
     name = workspace_root.name
     assert layout.py_tests_root == workspace_root.parent / f"{name}_migration_py_tests"
     assert layout.rust_root == workspace_root.parent / f"{name}_migration_rust"
-    assert layout.rust_tests_root == workspace_root.parent / f"{name}_migration_rust_tests"
+
+
+def test_ensure_scaffold_creates_pyo3_files(migration_layout: MigrationLayout) -> None:
+    assert (migration_layout.rust_root / "Cargo.toml").is_file()
+    assert (migration_layout.rust_root / "pyproject.toml").is_file()
+    assert (migration_layout.rust_root / "src/lib.rs").is_file()
+    cargo = (migration_layout.rust_root / "Cargo.toml").read_text(encoding="utf-8")
+    assert 'crate-type = ["cdylib"]' in cargo
+    assert "pyo3" in cargo
 
 
 def test_resolve_read_source(workspace_root: Path) -> None:
