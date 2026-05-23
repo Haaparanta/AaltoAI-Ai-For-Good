@@ -51,6 +51,23 @@ myproject_measurements/         # benchmark CSV, TXT, graphs (step 6)
 
 Tool paths: `source/`, `py_tests/`, `rust/`, `measurements/` (writes to `source/` are blocked).
 
+```mermaid
+flowchart TB
+    subgraph disk["Sibling directories on disk"]
+        direction TB
+        SRC["myproject/\n(read-only)"]
+        PY["myproject_migration_py_tests/\nmigration_plan.md · tests/ · .orchestrator/"]
+        RU["myproject_migration_rust/\nCargo.toml · pyproject.toml · src/ · wheel"]
+        MEAS["myproject_measurements/\nreport.txt · CSV · graphs/"]
+    end
+    SRC -.->|never written| SRC
+    PY --> CP["py_tests/.orchestrator/state.json"]
+    EX[Migration Executor] --> SRC
+    EX --> PY
+    EX --> RU
+    EX --> MEAS
+```
+
 ## Workflow
 
 ```mermaid
@@ -77,6 +94,31 @@ sequenceDiagram
     O->>U: Done or pause for review
 ```
 
+### Pipeline steps
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> CreateTests: r / start
+    CreateTests --> ReviewPlan: Analyzer + Py Tester + lint/pytest gates
+    ReviewPlan --> ReviewPlan: await human (a / s)
+    ReviewPlan --> Translate: approve
+    Translate --> ReviewRust: Scaffolder + Translator + fmt/clippy
+    ReviewRust --> ReviewRust: await human (a / s)
+    ReviewRust --> RunTests: approve
+    RunTests --> Translate: pytest fail → Translator fix
+    RunTests --> Measure: wheel + pytest pass
+    Measure --> Done
+    Done --> [*]
+
+    note right of ReviewPlan
+        Step 2 — human review gate
+    end note
+    note right of ReviewRust
+        Step 4 — human review gate
+    end note
+```
+
 | Key | Action |
 |-----|--------|
 | **r** | Resume detected progress / start |
@@ -94,6 +136,24 @@ On startup the orchestrator **detects migration progress** from a checkpoint fil
 (`py_tests/.orchestrator/state.json`) or by inferring artifacts on disk. Press **r** to
 resume at the detected step, or **R** to restart from step 1.
 
+```mermaid
+flowchart TD
+    Start([Startup / --detect-only]) --> CP{Valid checkpoint\nstate.json?}
+    CP -->|yes| Resume[Resume at saved step\n(high confidence)]
+    CP -->|no| Inf[Infer from artifacts]
+    Inf --> P1{migration_plan.md?}
+    P1 -->|no| S1[Step 1 — Create Python tests]
+    P1 -->|yes| P2{pytest under tests/?}
+    P2 -->|no| S1
+    P2 -->|yes| P3{Rust still scaffold-only?}
+    P3 -->|yes| S2[Step 2 — Review plan & tests]
+    P3 -->|no| P4{release wheel built?}
+    P4 -->|no| S4[Step 4 — Review Rust source]
+    P4 -->|yes| P5{measurements/report.txt?}
+    P5 -->|yes| Done[Done]
+    P5 -->|no| S5[Step 5 — Build wheel & pytest]
+```
+
 ```bash
 # Print detected step without opening the TUI
 uv run orchestrator -w /path/to/project --detect-only
@@ -109,6 +169,22 @@ Multiple agent instances can run in parallel when their write scopes do not over
 
 The TUI shows an **Active runs** table, a **pipeline strip**, concurrency slots (`▶ N/M slots`), and per-run detail when you select a row.
 
+```mermaid
+flowchart TB
+    Pool[AgentPool\nsemaphore: MAX_AGENT_CONCURRENCY]
+    subgraph s1["Step 1 — Py Tester fan-out (py_tests/ only)"]
+        PT1[Py Tester · test_foo.py]
+        PT2[Py Tester · test_bar.py]
+    end
+    subgraph s3["Step 3 — Translator fan-out (rust/ only)"]
+        T1[Translator · foo.rs]
+        T2[Translator · bar.rs]
+    end
+    Pool --> PT1 & PT2 & T1 & T2
+    PT1 & PT2 -.->|non-overlapping scopes| OK1[safe parallel]
+    T1 & T2 -.->|non-overlapping scopes| OK2[safe parallel]
+```
+
 ## Agents
 
 The pipeline uses **nine coordinated roles**. Six are LLM-backed specialists; three are non-LLM infrastructure roles. The **Orchestrator** drives step order, human-review pauses, quality gates, fix loops, and **resume-after-restart**. The **Executor** runs shell commands (`pytest`, `cargo`, `maturin`) without an LLM. The **Benchmarker** runs deterministic performance measurement after migration tests pass.
@@ -122,7 +198,31 @@ The pipeline uses **nine coordinated roles**. Six are LLM-backed specialists; th
 | **Scaffolder** | Yes | `rust/` | Step 3 — creates a compilable PyO3/maturin skeleton (`Cargo.toml`, `pyproject.toml`, `src/`) |
 | **Translator** | Yes | `rust/` | Step 3 — implements PyO3 bindings; fixes failures after wheel pytest or clippy (can fan out per `.rs` file) |
 | **Executor** | No | — | Runs `pytest`, `cargo fmt/clippy`, and `maturin build` + install; shown in the TUI during gates |
-| **Benchmarker** | No | `measurements/` | Step 6 — builds Python + Rust wheels, times 100+ runs per case, writes CSV/TXT/graphs to `{project}_measurements/` |
+| **Benchmarker** | Yes | `measurements/` | Step 6 — builds Python + Rust wheels, times 100+ runs per case, writes CSV/TXT/graphs to `{project}_measurements/` |
+
+```mermaid
+flowchart LR
+    subgraph llm["LLM-backed"]
+        direction TB
+        A[Analyzer]
+        PT[Py Tester]
+        RV[Reviewer]
+        SC[Scaffolder]
+        TR[Translator]
+        BM[Benchmarker]
+    end
+    subgraph no_llm["Deterministic"]
+        direction TB
+        OR[Orchestrator]
+        EX[Executor]
+    end
+    A & PT --> W1[(py_tests/)]
+    SC & TR --> W2[(rust/)]
+    BM --> W3[(measurements/)]
+    RV --> RO[(read-only)]
+    EX --> CMD[pytest · cargo · maturin]
+    OR --> WF[workflow · gates · checkpoints]
+```
 
 ### Orchestrator
 
@@ -189,6 +289,25 @@ The pipeline uses **nine coordinated roles**. Six are LLM-backed specialists; th
 **Intended function:** Hybrid LLM + deterministic performance comparison. Runs automatically as **Step 6** after migration pytest passes (Step 5).
 
 **Hybrid flow:**
+
+```mermaid
+flowchart TD
+    S6([Step 6 — Measure performance]) --> Auto[Auto-discover benchmark cases]
+    Auto --> D1[suite.toml]
+    D1 --> D2[known generators]
+    D2 --> D3[API signatures .pyi]
+    D3 --> D4[pytest call patterns]
+    D4 --> Engine[run_benchmarks engine]
+    Engine --> Match{Outputs match\nPython vs Rust?}
+    Match -->|no| Fail[Fail fast]
+    Match -->|yes| Time[100+ runs × 4 tiers\nsmall → xlarge]
+    Time --> Out[report.txt · CSV · graphs/]
+    Engine -->|no cases / error| LLM[Benchmarker LLM]
+    LLM --> Write[Write benchmark_suite.toml]
+    Write --> Engine
+    Out --> End([measurements/ complete])
+```
+
 1. **Auto-run (fast path)** — discovers cases from, in order: `measurements/benchmark_suite.toml`, known generators, API signatures (`.pyi`), or pytest call patterns; then runs the deterministic benchmark engine.
 2. **LLM fallback** — if auto-discovery finds no cases or the run fails, the Benchmarker agent inspects the project, writes `benchmark_suite.toml`, and calls `run_benchmarks`.
 
@@ -227,14 +346,36 @@ See [`agents/benchmarker.py`](agents/benchmarker.py) for the full agent specific
 
 ### Agent execution order (happy path)
 
-```text
-1. Analyzer → Py Tester → [lint + baseline pytest gates]
-   → Reviewer → human review
-2. Scaffolder → Translator → [fmt/clippy gate]
-   → Reviewer → human review
-3. Executor (maturin + migration pytest)
-   → Benchmarker (Python vs Rust wheels, reports to measurements/)
-   → done, or Translator fix loop on step 5 failure
+```mermaid
+flowchart TD
+    subgraph step1["Step 1"]
+        A1[Analyzer] --> A2[Py Tester]
+        A2 --> G1[flake8/mypy + baseline pytest]
+    end
+    G1 --> R1[Reviewer] --> H1{Human review}
+    H1 -->|approve| step3
+    H1 -->|feedback| step1
+
+    subgraph step3["Step 3"]
+        S1[Scaffolder] --> S2[Translator]
+        S2 --> G2[cargo fmt + clippy]
+    end
+    G2 --> R2[Reviewer] --> H2{Human review}
+    H2 -->|approve| step5
+    H2 -->|feedback| step3
+
+    subgraph step5["Step 5"]
+        E1[maturin build + pip install]
+        E1 --> E2[migration pytest]
+    end
+    E2 -->|fail| Fix[Translator fix loop]
+    Fix --> step5
+    E2 -->|pass| step6
+
+    subgraph step6["Step 6"]
+        B1[Benchmarker]
+    end
+    step6 --> Done([Done])
 ```
 
 ## Setup
@@ -249,6 +390,19 @@ See [`agents/benchmarker.py`](agents/benchmarker.py) for the full agent specific
 | `MAX_AGENT_CONCURRENCY` | Optional cap on parallel agent runs (provider-aware default) |
 
 Providers are checked at startup (`/v1/models`). The app errors only if **none** work.
+
+```mermaid
+flowchart LR
+    TUI[Textual TUI] --> Orch[Orchestrator]
+    Orch --> Client[LLM client]
+    Client --> Probe[/v1/models health check/]
+    Probe --> OAI[OpenAI\nOPENAI_API_KEY]
+    Probe --> Bridge[cursor-api-proxy\n127.0.0.1:8765]
+    Bridge --> Key[CURSOR_API_KEY]
+    Key --> CLI[Cursor agent CLI]
+    Orch --> Agents[LLM agents]
+    Agents --> Client
+```
 
 ### Cursor bridge (cursor-api-proxy)
 
@@ -293,5 +447,17 @@ uv run orchestrator -w /path/to/python/project
 ## Executor MCP
 
 Optional stdio MCP for Cursor: `uv run executor-mcp` (see [`.cursor/mcp.json`](.cursor/mcp.json)). The TUI uses the same tools in-process via [`orchestrator/migration_executor.py`](orchestrator/migration_executor.py).
+
+```mermaid
+flowchart TB
+    TUI[Textual TUI] --> Ctrl[orchestrator/controller.py]
+    Ctrl --> SR[step_runner · agent_pool · progress]
+    SR --> Ag[agents/]
+    SR --> ME[migration_executor.py]
+    ME --> MCP[executor_mcp/]
+    SR --> LLM[llm/]
+    SR --> Bench[benchmark/]
+    MCP --> Tools[read_file · write_file · execute_command · run_benchmarks]
+```
 
 Main code: [`orchestrator/`](orchestrator/), [`agents/`](agents/), [`benchmark/`](benchmark/), [`llm/`](llm/), [`executor_mcp/`](executor_mcp/).
