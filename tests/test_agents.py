@@ -11,8 +11,10 @@ from agents import (
     SCAFFOLDER_SYSTEM_PROMPT,
     SYSTEM_PROMPTS,
     TRANSLATOR_SYSTEM_PROMPT,
+    get_spec,
     get_system_prompt,
 )
+from agents.registry import can_run_parallel
 
 
 def test_all_prompts_non_empty() -> None:
@@ -26,6 +28,12 @@ def test_get_system_prompt_round_trip() -> None:
     assert get_system_prompt("scaffolder") is SCAFFOLDER_SYSTEM_PROMPT
     assert get_system_prompt("translator") is TRANSLATOR_SYSTEM_PROMPT
     assert get_system_prompt("reviewer") is REVIEWER_SYSTEM_PROMPT
+
+
+def test_registry_write_prefixes() -> None:
+    assert get_spec("py_tester").write_prefixes == ("py_tests/",)
+    assert get_spec("translator").write_prefixes == ("rust/",)
+    assert get_spec("reviewer").read_only is True
 
 
 def test_get_system_prompt_unknown_agent() -> None:

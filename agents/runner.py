@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_SOURCE
-from orchestrator.models import WorkflowStep
+from orchestrator.models import ParallelPolicy, WorkflowStep
 
 _FEEDBACK_PREFIX = "User feedback from the last review (apply these changes):\n"
+
+
+@dataclass(frozen=True)
+class AgentStage:
+    """One execution stage: agents run in parallel when len(agents) > 1."""
+
+    agents: tuple[str, ...]
+    policy: ParallelPolicy = ParallelPolicy.SEQUENTIAL
 
 
 def build_user_message(
@@ -126,13 +136,27 @@ def fix_agents_for_migration_pytest_output(_output: str) -> tuple[str, ...]:
     return ("translator",)
 
 
+def agent_stages_for_step(step: WorkflowStep) -> tuple[AgentStage, ...]:
+    """Return ordered stages for a work step (parallel within each stage)."""
+    if step == WorkflowStep.CREATE_TEST_PY:
+        return (
+            AgentStage(("analyzer",), ParallelPolicy.SEQUENTIAL),
+            AgentStage(("py_tester",), ParallelPolicy.SEQUENTIAL),
+        )
+    if step == WorkflowStep.TRANSLATE_CODE:
+        return (
+            AgentStage(("scaffolder",), ParallelPolicy.SEQUENTIAL),
+            AgentStage(("translator",), ParallelPolicy.SEQUENTIAL),
+        )
+    raise ValueError(f"No agent stages for workflow step: {step}")
+
+
 def agent_sequence_for_step(step: WorkflowStep) -> tuple[str, ...]:
     """Return agent_id strings to run sequentially for a work step."""
-    if step == WorkflowStep.CREATE_TEST_PY:
-        return ("analyzer", "py_tester")
-    if step == WorkflowStep.TRANSLATE_CODE:
-        return ("scaffolder", "translator")
-    raise ValueError(f"No agent sequence for workflow step: {step}")
+    sequence: list[str] = []
+    for stage in agent_stages_for_step(step):
+        sequence.extend(stage.agents)
+    return tuple(sequence)
 
 
 def review_step_for_work_step(step: WorkflowStep) -> WorkflowStep | None:

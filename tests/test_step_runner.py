@@ -16,7 +16,7 @@ from agents.runner import (
 )
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout
-from orchestrator.models import WorkflowStep
+from orchestrator.models import AgentId, RunKind, WorkflowStep
 from orchestrator.state import OrchestratorState
 from orchestrator.step_runner import StepRunner, StepRunResult
 from tests.stub_llm import StubLLM
@@ -180,6 +180,9 @@ def test_run_reviewer_returns_summary(
         runner = _runner(workspace_root, migration_layout, migration_executor)
         summary = await runner.run_reviewer(WorkflowStep.REVIEW_PLAN_PY)
         assert "Reviewer brief" in summary
+        assert any(
+            run.kind == RunKind.REVIEW for run in runner.state.runs.values()
+        )
 
     _run(run())
 
