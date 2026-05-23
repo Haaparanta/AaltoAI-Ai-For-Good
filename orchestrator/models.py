@@ -118,6 +118,49 @@ class AgentInfo:
         )
 
 
+class RunKind(str, Enum):
+    """Why an agent run was started."""
+
+    WORK = "work"
+    FIX = "fix"
+    REVIEW = "review"
+
+
+class ParallelPolicy(str, Enum):
+    """How agents within one stage are executed."""
+
+    SEQUENTIAL = "sequential"
+    FAN_OUT = "fan_out"
+
+
+@dataclass(frozen=True)
+class AgentRunInfo:
+    """One live or recently finished agent instance."""
+
+    run_id: str
+    role: AgentId
+    instance: int
+    label: str
+    status: AgentStatus
+    detail: str
+    step: WorkflowStep
+    kind: RunKind
+    started_at: datetime
+    group_id: str | None = None
+    scope: str = ""
+    last_tool: str = ""
+
+
+@dataclass
+class RunGroup:
+    """Batch of agent runs started together."""
+
+    group_id: str
+    step: WorkflowStep
+    label: str
+    run_ids: list[str] = field(default_factory=list)
+
+
 @dataclass
 class LogEntry:
     """Single line in the activity log."""
@@ -125,9 +168,19 @@ class LogEntry:
     timestamp: datetime
     level: str
     message: str
+    run_id: str | None = None
+    role: AgentId | None = None
+    instance: int | None = None
 
     def format_line(self) -> str:
         ts = self.timestamp.strftime("%H:%M:%S")
+        if self.role is not None:
+            from agents.registry import get_spec
+
+            name = get_spec(self.role.value).display_name
+            if self.instance is not None and self.instance > 1:
+                name = f"{name} #{self.instance}"
+            return f"[{ts}][{name}] {self.message}"
         return f"[{ts}] {self.message}"
 
 

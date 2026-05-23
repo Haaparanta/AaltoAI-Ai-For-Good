@@ -31,9 +31,26 @@ Screen {
 }
 
 #agents-panel {
-    height: 14;
+    height: 12;
     border: solid $primary-darken-1;
     padding: 0 1;
+}
+
+#runs-panel {
+    height: 8;
+    border: solid $primary-darken-1;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#runs-panel Static.panel-title {
+    text-style: bold;
+    padding: 1 0;
+    color: $accent;
+}
+
+#runs-table {
+    height: 1fr;
 }
 
 #paths-panel {
@@ -44,6 +61,7 @@ Screen {
 }
 
 #agents-panel Static.panel-title,
+#runs-panel Static.panel-title,
 #paths-panel Static.panel-title,
 #content-panel Static.panel-title {
     text-style: bold;

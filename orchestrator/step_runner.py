@@ -6,22 +6,23 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
-from agents import get_system_prompt
+from agents.registry import get_spec
 from agents.runner import (
-    agent_sequence_for_step,
+    agent_stages_for_step,
     build_user_message,
     fix_agents_for_lint_output,
     fix_agents_for_migration_pytest_output,
     fix_agents_for_pytest_output,
-    review_step_for_work_step,
 )
 from executor_mcp.python_test_quality import lint_tree, tree_lint_output
 from executor_mcp.rust_wheel import build_and_install_wheel
 from llm.types import LLMClient
+from orchestrator.agent_pool import AgentPool, AgentRunSpec
 from orchestrator.migration_executor import MigrationExecutor
 from orchestrator.migration_layout import MigrationLayout, PREFIX_PY_TESTS, PREFIX_RUST
-from orchestrator.models import AgentId, AgentStatus, WorkflowStep
+from orchestrator.models import AgentId, AgentStatus, RunKind, WorkflowStep
 from orchestrator.state import OrchestratorState
 
 StateNotify = Callable[[], Awaitable[None] | None]
@@ -46,11 +47,15 @@ class StepRunner:
         llm: LLMClient,
         *,
         on_notify: StateNotify | None = None,
+        pool: AgentPool | None = None,
     ) -> None:
         self.state = state
         self._executor = executor
         self._llm = llm
         self._on_notify = on_notify
+        self._pool = pool or AgentPool(
+            state, executor, llm, on_notify=on_notify
+        )
 
     async def _notify(self) -> None:
         if self._on_notify is None:
@@ -79,65 +84,41 @@ class StepRunner:
     async def _run_agents(self, step: WorkflowStep) -> StepRunResult:
         feedback = self.state.last_user_feedback
         summaries: list[str] = []
-        all_artifacts: list[str] = []
+        stage_index = 0
 
-        sequence = agent_sequence_for_step(step)
-        for index, agent_key in enumerate(sequence):
-            agent_enum = AgentId.from_key(agent_key)
-            self.state.set_agent(agent_enum, AgentStatus.RUNNING)
-            await self._notify()
+        for stage in agent_stages_for_step(step):
+            specs: list[AgentRunSpec] = []
+            for agent_index, agent_key in enumerate(stage.agents):
+                user_message = build_user_message(
+                    step,
+                    layout=self._layout(),
+                    agent_id=agent_key,
+                    feedback=feedback if stage_index == 0 and agent_index == 0 else "",
+                )
+                specs.append(
+                    AgentRunSpec(
+                        agent_key=agent_key,
+                        user_message=user_message,
+                        label=get_spec(agent_key).display_name,
+                        kind=RunKind.WORK,
+                    )
+                )
 
-            layout = self._layout()
-            user_message = build_user_message(
-                step,
-                layout=layout,
-                agent_id=agent_key,
-                feedback=feedback if index == 0 else "",
+            parallel = len(specs) > 1
+            results = await self._pool.run_batch(
+                specs,
+                step=step,
+                parallel=parallel,
             )
-
-            async def on_tool_log(
-                tool_name: str, args: dict[str, Any], result: str
-            ) -> None:
-                detail = args.get("path") or args.get("command") or tool_name
-                name = self.state.agents[agent_enum].display_name
-                self.state.append_log(f"{name}: {tool_name} {detail}")
-                await self._notify()
-
-            result = await self._llm.run_agent_turn(
-                agent_id=agent_key,
-                system_prompt=get_system_prompt(agent_key),
-                user_message=user_message,
-                tools=MigrationExecutor.tools_for_agent(agent_key),
-                on_tool_log=on_tool_log,
-            )
-
-            if result.success:
-                self.state.set_agent(
-                    agent_enum, AgentStatus.COMPLETED, detail="Done"
-                )
-            else:
-                self.state.set_agent(
-                    agent_enum,
-                    AgentStatus.ERROR,
-                    detail=result.error or "Failed",
-                )
-                name = self.state.agents[agent_enum].display_name
-                self.state.append_log(
-                    f"{name} failed: {result.error or result.summary}",
-                    level="error",
-                )
-                await self._notify()
-                return StepRunResult(
-                    success=False,
-                    summary=result.summary,
-                    allow_advance=False,
-                )
-
-            summaries.append(result.summary)
-            all_artifacts.extend(result.artifacts)
-            name = self.state.agents[agent_enum].display_name
-            self.state.append_log(f"{name}: {result.summary}")
-            await self._notify()
+            for result in results:
+                if not result.success:
+                    return StepRunResult(
+                        success=False,
+                        summary=result.summary,
+                        allow_advance=False,
+                    )
+                summaries.append(result.summary)
+            stage_index += 1
 
         self.state.last_agent_summary = " ".join(summaries)
         return StepRunResult(success=True, summary=self.state.last_agent_summary)
@@ -266,11 +247,18 @@ class StepRunner:
 
         fix_agents = fix_agents_for_migration_pytest_output(output)
         agent_names = ", ".join(
-            self.state.agents[AgentId.from_key(key)].display_name for key in fix_agents
+            get_spec(key).display_name for key in fix_agents
         )
         self.state.append_log(
             f"Orchestrator: migration pytest failed — dispatching {agent_names}"
         )
+        self.state.set_agent(
+            AgentId.ORCHESTRATOR,
+            AgentStatus.RUNNING,
+            detail=f"Fixing migration pytest via {agent_names}",
+        )
+        await self._notify()
+
         current_output = output
         exit_code2 = exit_code
         for fix_agent_key in fix_agents:
@@ -279,6 +267,7 @@ class StepRunner:
                 step=WorkflowStep.RUN_TESTS,
                 failure_output=current_output,
                 failure_label="migration pytest",
+                parallel=False,
             )
             wheel_ok, wheel_output = build_and_install_wheel(layout.rust_root)
             if not wheel_ok:
@@ -364,20 +353,14 @@ class StepRunner:
         failure_output: str,
         failure_label: str,
         message_phase: str = "work",
+        parallel: bool = False,
     ) -> None:
-        for fix_agent_key in fix_agents:
-            fix_agent_enum = AgentId.from_key(fix_agent_key)
-            fix_agent_name = self.state.agents[fix_agent_enum].display_name
-            self.state.set_agent(
-                AgentId.ORCHESTRATOR,
-                AgentStatus.RUNNING,
-                detail=f"Fixing {failure_label} via {fix_agent_name}",
-            )
-            self.state.set_agent(
-                fix_agent_enum, AgentStatus.RUNNING, detail="Applying fix"
-            )
-            await self._notify()
+        if not fix_agents:
+            return
 
+        group_id = uuid4().hex[:8] if len(fix_agents) > 1 else None
+        specs: list[AgentRunSpec] = []
+        for fix_agent_key in fix_agents:
             fix_message = build_user_message(
                 step,
                 layout=self._layout(),
@@ -386,94 +369,54 @@ class StepRunner:
                 message_phase=message_phase,
             )
             fix_message += f"\n\n{failure_label} output:\n{failure_output[-4000:]}"
-
-            set_fix_test_mode = getattr(self._llm, "set_fix_test_mode", None)
-            if callable(set_fix_test_mode):
-                set_fix_test_mode(
-                    True, agent_id=fix_agent_key, test_output=failure_output
+            specs.append(
+                AgentRunSpec(
+                    agent_key=fix_agent_key,
+                    user_message=fix_message,
+                    label=f"{get_spec(fix_agent_key).display_name} fix",
+                    kind=RunKind.FIX,
+                    group_id=group_id,
+                    fix_test_output=failure_output,
                 )
-
-            async def on_fix_tool_log(
-                tool_name: str,
-                args: dict[str, Any],
-                result: str,
-                *,
-                name: str = fix_agent_name,
-            ) -> None:
-                detail = args.get("path") or args.get("command") or tool_name
-                self.state.append_log(f"{name}: {tool_name} {detail}")
-                await self._notify()
-
-            fix_result = await self._llm.run_agent_turn(
-                agent_id=fix_agent_key,
-                system_prompt=get_system_prompt(fix_agent_key),
-                user_message=fix_message,
-                tools=MigrationExecutor.tools_for_agent(fix_agent_key),
-                on_tool_log=on_fix_tool_log,
             )
-            if callable(set_fix_test_mode):
-                set_fix_test_mode(False)
-            if fix_result.success:
-                self.state.set_agent(
-                    fix_agent_enum, AgentStatus.COMPLETED, detail="Fix applied"
-                )
-                self.state.append_log(f"{fix_agent_name}: {fix_result.summary}")
-            else:
-                self.state.set_agent(
-                    fix_agent_enum,
-                    AgentStatus.ERROR,
-                    detail=fix_result.error or "Fix failed",
-                )
-                self.state.append_log(
-                    f"{fix_agent_name} failed: {fix_result.error or fix_result.summary}",
-                    level="error",
-                )
-            await self._notify()
+
+        await self._pool.run_batch(
+            specs,
+            step=step,
+            group_label=f"Fix {failure_label}",
+            parallel=parallel and len(specs) > 1,
+        )
 
     async def run_reviewer(self, review_step: WorkflowStep) -> str:
         """Run the Reviewer agent before a human review gate."""
-        agent_key = "reviewer"
-        agent_enum = AgentId.REVIEWER
-        self.state.set_agent(agent_enum, AgentStatus.RUNNING)
-        await self._notify()
-
         user_message = build_user_message(
             review_step,
             layout=self._layout(),
-            agent_id=agent_key,
+            agent_id="reviewer",
             feedback=self.state.last_user_feedback,
         )
-
-        async def on_tool_log(
-            tool_name: str, args: dict[str, Any], result: str
-        ) -> None:
-            detail = args.get("path") or tool_name
-            name = self.state.agents[agent_enum].display_name
-            self.state.append_log(f"{name}: {tool_name} {detail}")
-            await self._notify()
-
-        result = await self._llm.run_agent_turn(
-            agent_id=agent_key,
-            system_prompt=get_system_prompt(agent_key),
-            user_message=user_message,
-            tools=MigrationExecutor.tools_for_agent(agent_key),
-            on_tool_log=on_tool_log,
+        result = await self._pool.run_one(
+            AgentRunSpec(
+                agent_key="reviewer",
+                user_message=user_message,
+                label="Reviewer brief",
+                kind=RunKind.REVIEW,
+            ),
+            step=review_step,
         )
-
         if result.success:
             self.state.set_agent(
-                agent_enum, AgentStatus.COMPLETED, detail="Review brief ready"
+                AgentId.REVIEWER, AgentStatus.COMPLETED, detail="Review brief ready"
             )
-            name = self.state.agents[agent_enum].display_name
-            self.state.append_log(f"{name}: {result.summary}")
-        else:
-            self.state.set_agent(
-                agent_enum,
-                AgentStatus.ERROR,
-                detail=result.error or "Review failed",
-            )
+            await self._notify()
+            return result.summary
+        self.state.set_agent(
+            AgentId.REVIEWER,
+            AgentStatus.ERROR,
+            detail=result.error or "Review failed",
+        )
         await self._notify()
-        return result.summary if result.success else ""
+        return ""
 
     async def _run_rust_quality_gate(self) -> StepRunResult:
         layout = self._layout()

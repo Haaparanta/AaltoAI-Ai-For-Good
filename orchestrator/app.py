@@ -70,6 +70,9 @@ class MigratorApp(App[None]):
                 with Vertical(id="agents-panel"):
                     yield Static("Agents", classes="panel-title")
                     yield DataTable(id="agents-table", zebra_stripes=True)
+                with Vertical(id="runs-panel"):
+                    yield Static("Active runs", classes="panel-title")
+                    yield DataTable(id="runs-table", zebra_stripes=True)
                 with VerticalScroll(id="paths-panel"):
                     yield Static("Migration layout", classes="panel-title")
                     yield Static("", id="paths-text")
@@ -100,7 +103,7 @@ class MigratorApp(App[None]):
     def on_mount(self) -> None:
         table = self.query_one("#agents-table", DataTable)
         table.cursor_type = "none"
-        table.add_column("Agent", key="agent", width=12)
+        table.add_column("Agent", key="agent", width=14)
         table.add_column("Status", key="status", width=10)
         table.add_column("Detail", key="detail")
         for agent_id in AgentId:
@@ -110,6 +113,13 @@ class MigratorApp(App[None]):
                 "",
                 key=agent_id.value,
             )
+
+        runs_table = self.query_one("#runs-table", DataTable)
+        runs_table.cursor_type = "row"
+        runs_table.add_column("Instance", key="instance", width=16)
+        runs_table.add_column("Status", key="status", width=10)
+        runs_table.add_column("Detail", key="detail")
+
         self._refresh_ui()
         self._startup_work()
 
@@ -166,7 +176,10 @@ class MigratorApp(App[None]):
         step = state.workflow_step
         step_text = step.label
         if step.step_number is not None and step != WorkflowStep.DONE:
-            step_text = f"Step {step.step_number}/7 — {step.label}"
+            step_text = f"Step {step.step_number}/5 — {step.label}"
+        active_runs = state.active_run_count
+        if active_runs:
+            step_text = f"{step_text} · {active_runs} active"
         self.query_one("#step-label", Static).update(step_text)
         self.query_one("#workspace-label", Static).update(
             f"Source project: {state.workspace}"
@@ -193,6 +206,33 @@ class MigratorApp(App[None]):
             table.update_cell(agent_id.value, "agent", info.display_name)
             table.update_cell(agent_id.value, "status", status_cell)
             table.update_cell(agent_id.value, "detail", info.detail or info.role)
+
+        runs_table = self.query_one("#runs-table", DataTable)
+        active = [
+            run
+            for run in state.runs.values()
+            if run.status
+            in (AgentStatus.RUNNING, AgentStatus.WAITING, AgentStatus.ERROR)
+        ]
+        active.sort(key=lambda run: run.started_at)
+        runs_table.clear()
+        if active:
+            for run in active:
+                status_cell = Text(
+                    run.status.value, style=_STATUS_STYLE[run.status]
+                )
+                instance_label = run.label
+                if run.instance > 1 and run.label == state.agents[run.role].display_name:
+                    instance_label = f"{run.label} #{run.instance}"
+                detail = run.detail or run.last_tool or run.kind.value
+                runs_table.add_row(
+                    instance_label,
+                    status_cell,
+                    detail,
+                    key=run.run_id,
+                )
+        else:
+            runs_table.add_row("(none)", "idle", "No active agent runs", key="_empty")
 
         review_panel = self.query_one("#review-panel")
         human_row = self.query_one("#human-input-row")
