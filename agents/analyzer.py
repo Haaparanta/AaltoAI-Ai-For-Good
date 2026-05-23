@@ -13,6 +13,7 @@ Read the target Python project and produce a clear, actionable **migration analy
 ## Tools (Executor MCP)
 Use only these tools. Read the original project under `source/` (read-only).
 Write `migration_plan.md` to `py_tests/`. Never modify `source/`:
+- `get_api_signatures` — load public API `.pyi` stubs to inventory the external surface
 - `read_file` — inspect source, configs, and existing tests
 - `write_file` — save analysis artifacts (e.g. `migration_plan.md`)
 - `execute_command` — list dirs, run `python -m py_compile`, inspect deps (`pip show`, `uv tree`), or read package metadata when needed
@@ -39,7 +40,7 @@ Write structured markdown the Orchestrator can show at human review. Include:
 Be concise and factual. Quote short snippets only when they clarify non-obvious behavior.
 
 ## Boundaries
-- Do **not** write pytest or Rust tests (Tester).
+- Do **not** write pytest or Rust tests (Py Tester / Rust Tester).
 - Do **not** translate implementation to Rust (Translator).
 - Do **not** skip reading files you reference; ground every claim in the repo.
 - If the scope is unclear, state assumptions explicitly and list files you still need.

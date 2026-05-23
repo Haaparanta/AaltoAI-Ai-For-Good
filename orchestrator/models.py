@@ -7,15 +7,31 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from agents.registry import ALL_AGENTS, get_spec
+
 
 class AgentId(str, Enum):
     """Specialized agents coordinated by the orchestrator."""
 
     ORCHESTRATOR = "orchestrator"
     ANALYZER = "analyzer"
-    TESTER = "tester"
+    PY_TESTER = "py_tester"
+    RUST_TESTER = "rust_tester"
+    SCAFFOLDER = "scaffolder"
     TRANSLATOR = "translator"
+    REVIEWER = "reviewer"
     EXECUTOR = "executor"
+
+    @classmethod
+    def from_key(cls, agent_key: str) -> AgentId:
+        """Map a string agent id to AgentId."""
+        try:
+            return cls(agent_key)
+        except ValueError as exc:
+            known = ", ".join(member.value for member in cls)
+            raise ValueError(
+                f"Unknown agent key {agent_key!r}; expected one of: {known}"
+            ) from exc
 
 
 class AgentStatus(str, Enum):
@@ -84,13 +100,9 @@ _HUMAN_REVIEW_STEPS = frozenset(
     }
 )
 
-_AGENT_DISPLAY: dict[AgentId, str] = {
-    AgentId.ORCHESTRATOR: "Orchestrator",
-    AgentId.ANALYZER: "Analyzer",
-    AgentId.TESTER: "Tester",
-    AgentId.TRANSLATOR: "Translator",
-    AgentId.EXECUTOR: "Executor",
-}
+_WORKFLOW_AGENT_IDS = frozenset(spec.id for spec in ALL_AGENTS.values())
+if _WORKFLOW_AGENT_IDS != frozenset(member.value for member in AgentId):
+    raise RuntimeError("AgentId enum is out of sync with agents.registry.ALL_AGENTS")
 
 
 @dataclass(frozen=True)
@@ -105,17 +117,11 @@ class AgentInfo:
 
     @classmethod
     def default(cls, agent_id: AgentId) -> AgentInfo:
-        roles = {
-            AgentId.ORCHESTRATOR: "Coordinates workflow and human reviews",
-            AgentId.ANALYZER: "Analyzes Python project structure",
-            AgentId.TESTER: "Writes and translates tests",
-            AgentId.TRANSLATOR: "Translates Python to Rust",
-            AgentId.EXECUTOR: "Runs commands via MCP executor",
-        }
+        spec = get_spec(agent_id.value)
         return cls(
             agent_id=agent_id,
-            display_name=_AGENT_DISPLAY[agent_id],
-            role=roles[agent_id],
+            display_name=spec.display_name,
+            role=spec.role,
             status=AgentStatus.IDLE,
         )
 

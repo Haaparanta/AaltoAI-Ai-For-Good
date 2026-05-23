@@ -53,9 +53,26 @@ class MigrationExecutor:
     @staticmethod
     def tools_for_agent(agent_id: str) -> list[dict[str, Any]]:
         tools = MigrationExecutor.tool_schemas()
-        if agent_id == "tester":
+        if agent_id in ("analyzer", "py_tester"):
             tools = [*tools, MigrationExecutor._get_api_signatures_schema()]
+        if agent_id == "reviewer":
+            return [
+                MigrationExecutor._read_file_schema(
+                    *MigrationExecutor._path_prefixes()
+                )
+            ]
         return tools
+
+    @staticmethod
+    def _path_prefixes() -> tuple[str, str, str, str]:
+        from orchestrator.migration_layout import (
+            PREFIX_PY_TESTS,
+            PREFIX_RUST,
+            PREFIX_RUST_TESTS,
+            PREFIX_SOURCE,
+        )
+
+        return PREFIX_SOURCE, PREFIX_PY_TESTS, PREFIX_RUST, PREFIX_RUST_TESTS
 
     @staticmethod
     def _read_file_schema(

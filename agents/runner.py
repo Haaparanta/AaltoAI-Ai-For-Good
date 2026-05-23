@@ -66,30 +66,68 @@ def build_user_message(
             f"Use `{PREFIX_PY_TESTS}/migration_plan.md` and approved Python tests.\n"
             f"Write Rust integration tests under `{PREFIX_RUST_TESTS}/tests/`."
         )
-    if step == WorkflowStep.TRANSLATE_CODE:
+    if step == WorkflowStep.TRANSLATE_CODE and message_phase == "clippy_fix":
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
-            "Phase: TRANSLATE CODE (Python → Rust implementation).\n"
-            f"Use migration plan, `{PREFIX_RUST_TESTS}/` tests, and `{PREFIX_SOURCE}/` sources.\n"
-            f"Implement `{PREFIX_RUST}/src/` and `{PREFIX_RUST}/Cargo.toml` so "
-            "cargo test in rust_tests passes."
+            "Phase: FIX AFTER RUST QUALITY CHECK FAILURE.\n"
+            f"`cargo fmt --check` and/or `cargo clippy` failed under `{PREFIX_RUST}/`. "
+            "Fix formatting, lints, and compile issues in Rust implementation and "
+            "Cargo.toml. Do not edit rust_tests/."
+        )
+    if step == WorkflowStep.TRANSLATE_CODE:
+        if agent_id == "scaffolder":
+            task = (
+                f"Read `{PREFIX_PY_TESTS}/migration_plan.md` and approved Rust tests under "
+                f"`{PREFIX_RUST_TESTS}/`. Scaffold `{PREFIX_RUST}/Cargo.toml` and "
+                f"`{PREFIX_RUST}/src/` with module stubs that compile. Run `cargo check` "
+                "with cwd rust."
+            )
+        else:
+            task = (
+                f"Use migration plan, Scaffolder output under `{PREFIX_RUST}/`, "
+                f"`{PREFIX_RUST_TESTS}/` tests, and `{PREFIX_SOURCE}/` sources.\n"
+                f"Implement `{PREFIX_RUST}/src/` so cargo test in rust_tests passes."
+            )
+        return (
+            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
+            f"Phase: TRANSLATE CODE (Python → Rust implementation).\n{task}"
         )
     if step == WorkflowStep.RUN_TESTS:
         if agent_id == "translator":
             task = (
                 "cargo test failed. Fix Rust implementation and build config under "
                 f"`{PREFIX_RUST}/` (src/, Cargo.toml, dependencies). Do not edit "
-                f"`{PREFIX_RUST_TESTS}/` unless Tester already ran."
+                f"`{PREFIX_RUST_TESTS}/` unless Rust Tester already ran."
+            )
+        elif agent_id == "rust_tester":
+            task = (
+                "Tests failed. Fix Rust tests under "
+                f"`{PREFIX_RUST_TESTS}/`. Run cargo test (cwd rust_tests)."
             )
         else:
             task = (
-                "Tests failed. Fix Rust tests under "
-                f"`{PREFIX_RUST_TESTS}/` and/or Python tests under `{PREFIX_PY_TESTS}/` "
-                "as needed. Run cargo test (cwd rust_tests) and pytest (cwd py_tests)."
+                "Tests failed. Fix Python tests under "
+                f"`{PREFIX_PY_TESTS}/`. Run pytest (cwd py_tests)."
             )
         return (
             f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
             f"Phase: FIX AFTER TEST FAILURE.\n{task}"
+        )
+    if step in (
+        WorkflowStep.REVIEW_PLAN_PY,
+        WorkflowStep.REVIEW_RUST_TESTS,
+        WorkflowStep.REVIEW_RUST_CODE,
+    ):
+        focus = {
+            WorkflowStep.REVIEW_PLAN_PY: "migration plan and Python baseline tests",
+            WorkflowStep.REVIEW_RUST_TESTS: "Rust tests vs the approved Python baseline",
+            WorkflowStep.REVIEW_RUST_CODE: "Rust implementation vs tests and migration plan",
+        }[step]
+        return (
+            f"{feedback_block}Original project (read-only): {source}\n\n{paths}\n\n"
+            f"Phase: PRE-REVIEW BRIEF for {step.label}.\n"
+            f"Read artifacts for {focus} and produce a structured review brief "
+            "for the human reviewer. Do not modify any files."
         )
     raise ValueError(f"No user message for workflow step: {step}")
 
@@ -103,13 +141,13 @@ def fix_agents_for_cargo_output(output: str) -> tuple[str, ...]:
     rust_code_failure = _cargo_failure_in_rust_code(output)
 
     if rust_test_failure:
-        agents.append("tester")
+        agents.append("rust_tester")
     if rust_code_failure:
         agents.append("translator")
 
     if not agents:
         if "panicked at" in lowered or "assertion" in lowered or "assert_eq!" in lowered:
-            agents.extend(["translator", "tester"])
+            agents.extend(["translator", "rust_tester"])
         else:
             agents.append("translator")
 
@@ -118,12 +156,12 @@ def fix_agents_for_cargo_output(output: str) -> tuple[str, ...]:
 
 def fix_agents_for_pytest_output(_output: str) -> tuple[str, ...]:
     """Agents to run after a pytest failure during baseline capture."""
-    return ("tester",)
+    return ("py_tester",)
 
 
 def fix_agents_for_lint_output(_output: str) -> tuple[str, ...]:
     """Agents to run after flake8/mypy failure on Python tests."""
-    return ("tester",)
+    return ("py_tester",)
 
 
 def _dedupe_agents(agents: list[str]) -> tuple[str, ...]:
@@ -171,9 +209,19 @@ def _cargo_failure_in_rust_code(output: str) -> bool:
 def agent_sequence_for_step(step: WorkflowStep) -> tuple[str, ...]:
     """Return agent_id strings to run sequentially for a work step."""
     if step == WorkflowStep.CREATE_TEST_PY:
-        return ("analyzer", "tester")
+        return ("analyzer", "py_tester")
     if step == WorkflowStep.TRANSLATE_TEST:
-        return ("tester",)
+        return ("rust_tester",)
     if step == WorkflowStep.TRANSLATE_CODE:
-        return ("translator",)
+        return ("scaffolder", "translator")
     raise ValueError(f"No agent sequence for workflow step: {step}")
+
+
+def review_step_for_work_step(step: WorkflowStep) -> WorkflowStep | None:
+    """Return the human review step that follows a successful work step."""
+    mapping = {
+        WorkflowStep.CREATE_TEST_PY: WorkflowStep.REVIEW_PLAN_PY,
+        WorkflowStep.TRANSLATE_TEST: WorkflowStep.REVIEW_RUST_TESTS,
+        WorkflowStep.TRANSLATE_CODE: WorkflowStep.REVIEW_RUST_CODE,
+    }
+    return mapping.get(step)
