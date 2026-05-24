@@ -32,10 +32,10 @@ flowchart TB
     Exec --> ME
     Bench --> ME
 
-    ME --> Source[source/ read-only]
-    ME --> Py[py_tests/]
-    ME --> Ru[rust/ PyO3]
-    ME --> Meas[measurements/]
+    ME --> Source["source read-only"]
+    ME --> Py[py_tests]
+    ME --> Ru["rust PyO3"]
+    ME --> Meas[measurements]
 ```
 
 **Agents:** see [Agents](#agents) below for roles, tools, and when each runs.
@@ -55,13 +55,13 @@ Tool paths: `source/`, `py_tests/`, `rust/`, `measurements/` (writes to `source/
 flowchart TB
     subgraph disk["Sibling directories on disk"]
         direction TB
-        SRC["myproject/\n(read-only)"]
-        PY["myproject_migration_py_tests/\nmigration_plan.md · tests/ · .orchestrator/"]
-        RU["myproject_migration_rust/\nCargo.toml · pyproject.toml · src/ · wheel"]
-        MEAS["myproject_measurements/\nreport.txt · CSV · graphs/"]
+        SRC["myproject read-only"]
+        PY["myproject_migration_py_tests"]
+        RU["myproject_migration_rust"]
+        MEAS["myproject_measurements"]
     end
     SRC -.->|never written| SRC
-    PY --> CP["py_tests/.orchestrator/state.json"]
+    PY --> CP["checkpoint state.json"]
     EX[Migration Executor] --> SRC
     EX --> PY
     EX --> RU
@@ -77,15 +77,15 @@ sequenceDiagram
     participant A as Agents
     participant E as Executor
 
-    U->>O: Select LLM, then start (r)
-    O->>A: 1 Create Python tests → py_tests/
+    U->>O: Select LLM then start
+    O->>A: Step 1 create Python tests
     A->>E: pytest against source
-    O->>U: 2 Review
-    U-->>O: Approve / feedback
-    O->>A: 3 Translate code → PyO3 rust/
-    O->>U: 4 Review
-    U-->>O: Approve / feedback
-    O->>E: 5 maturin build, pip install, pytest
+    O->>U: Step 2 review
+    U-->>O: Approve or feedback
+    O->>A: Step 3 translate to PyO3 rust
+    O->>U: Step 4 review
+    U-->>O: Approve or feedback
+    O->>E: Step 5 maturin build and pytest
     alt failure
         O->>A: Fix (Translator)
         E->>O: Retry
@@ -99,24 +99,19 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> CreateTests: r / start
-    CreateTests --> ReviewPlan: Analyzer + Py Tester + lint/pytest gates
-    ReviewPlan --> ReviewPlan: await human (a / s)
+    Idle --> CreateTests: start
+    CreateTests --> ReviewPlan: tests and gates pass
+    ReviewPlan --> ReviewPlan: await human
     ReviewPlan --> Translate: approve
-    Translate --> ReviewRust: Scaffolder + Translator + fmt/clippy
-    ReviewRust --> ReviewRust: await human (a / s)
+    Translate --> ReviewRust: scaffold and translate
+    ReviewRust --> ReviewRust: await human
     ReviewRust --> RunTests: approve
-    RunTests --> Translate: pytest fail → Translator fix
-    RunTests --> Measure: wheel + pytest pass
+    RunTests --> Translate: pytest fail fix
+    RunTests --> Measure: wheel and pytest pass
     Measure --> Done
     Done --> [*]
-
-    note right of ReviewPlan
-        Step 2 — human review gate
-    end note
-    note right of ReviewRust
-        Step 4 — human review gate
-    end note
+    note right of ReviewPlan: Step 2 human review
+    note right of ReviewRust: Step 4 human review
 ```
 
 | Key | Action |
@@ -138,20 +133,20 @@ resume at the detected step, or **R** to restart from step 1.
 
 ```mermaid
 flowchart TD
-    Start([Startup / --detect-only]) --> CP{Valid checkpoint\nstate.json?}
-    CP -->|yes| Resume[Resume at saved step\n(high confidence)]
+    Start([Startup detect-only]) --> CP{"Valid checkpoint state.json?"}
+    CP -->|yes| Resume["Resume at saved step"]
     CP -->|no| Inf[Infer from artifacts]
     Inf --> P1{migration_plan.md?}
-    P1 -->|no| S1[Step 1 — Create Python tests]
-    P1 -->|yes| P2{pytest under tests/?}
+    P1 -->|no| S1["Step 1: Create Python tests"]
+    P1 -->|yes| P2{pytest under tests?}
     P2 -->|no| S1
-    P2 -->|yes| P3{Rust still scaffold-only?}
-    P3 -->|yes| S2[Step 2 — Review plan & tests]
+    P2 -->|yes| P3{Rust scaffold only?}
+    P3 -->|yes| S2["Step 2: Review plan and tests"]
     P3 -->|no| P4{release wheel built?}
-    P4 -->|no| S4[Step 4 — Review Rust source]
-    P4 -->|yes| P5{measurements/report.txt?}
+    P4 -->|no| S4["Step 4: Review Rust source"]
+    P4 -->|yes| P5{report.txt exists?}
     P5 -->|yes| Done[Done]
-    P5 -->|no| S5[Step 5 — Build wheel & pytest]
+    P5 -->|no| S5["Step 5: Build wheel and pytest"]
 ```
 
 ```bash
@@ -171,18 +166,23 @@ The TUI shows an **Active runs** table, a **pipeline strip**, concurrency slots 
 
 ```mermaid
 flowchart TB
-    Pool[AgentPool\nsemaphore: MAX_AGENT_CONCURRENCY]
-    subgraph s1["Step 1 — Py Tester fan-out (py_tests/ only)"]
-        PT1[Py Tester · test_foo.py]
-        PT2[Py Tester · test_bar.py]
+    Pool["AgentPool MAX_AGENT_CONCURRENCY"]
+    subgraph s1["Step 1 Py Tester fan-out"]
+        PT1["Py Tester test_foo.py"]
+        PT2["Py Tester test_bar.py"]
     end
-    subgraph s3["Step 3 — Translator fan-out (rust/ only)"]
-        T1[Translator · foo.rs]
-        T2[Translator · bar.rs]
+    subgraph s3["Step 3 Translator fan-out"]
+        T1["Translator foo.rs"]
+        T2["Translator bar.rs"]
     end
-    Pool --> PT1 & PT2 & T1 & T2
-    PT1 & PT2 -.->|non-overlapping scopes| OK1[safe parallel]
-    T1 & T2 -.->|non-overlapping scopes| OK2[safe parallel]
+    Pool --> PT1
+    Pool --> PT2
+    Pool --> T1
+    Pool --> T2
+    PT1 -.-> OK1[safe parallel py_tests]
+    PT2 -.-> OK1
+    T1 -.-> OK2[safe parallel rust]
+    T2 -.-> OK2
 ```
 
 ## Agents
@@ -202,7 +202,7 @@ The pipeline uses **nine coordinated roles**. Six are LLM-backed specialists; th
 
 ```mermaid
 flowchart LR
-    subgraph llm["LLM-backed"]
+    subgraph llmAgents["LLM-backed"]
         direction TB
         A[Analyzer]
         PT[Py Tester]
@@ -211,17 +211,19 @@ flowchart LR
         TR[Translator]
         BM[Benchmarker]
     end
-    subgraph no_llm["Deterministic"]
+    subgraph infraAgents["Deterministic"]
         direction TB
         OR[Orchestrator]
         EX[Executor]
     end
-    A & PT --> W1[(py_tests/)]
-    SC & TR --> W2[(rust/)]
-    BM --> W3[(measurements/)]
+    A --> W1[(py_tests)]
+    PT --> W1
+    SC --> W2[(rust)]
+    TR --> W2
+    BM --> W3[(measurements)]
     RV --> RO[(read-only)]
-    EX --> CMD[pytest · cargo · maturin]
-    OR --> WF[workflow · gates · checkpoints]
+    EX --> CMD["pytest cargo maturin"]
+    OR --> WF["workflow gates checkpoints"]
 ```
 
 ### Orchestrator
@@ -292,20 +294,20 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    S6([Step 6 — Measure performance]) --> Auto[Auto-discover benchmark cases]
+    S6([Step 6 measure performance]) --> Auto[Auto-discover benchmark cases]
     Auto --> D1[suite.toml]
     D1 --> D2[known generators]
-    D2 --> D3[API signatures .pyi]
+    D2 --> D3[API signatures pyi]
     D3 --> D4[pytest call patterns]
     D4 --> Engine[run_benchmarks engine]
-    Engine --> Match{Outputs match\nPython vs Rust?}
+    Engine --> Match{"Outputs match Python vs Rust?"}
     Match -->|no| Fail[Fail fast]
-    Match -->|yes| Time[100+ runs × 4 tiers\nsmall → xlarge]
-    Time --> Out[report.txt · CSV · graphs/]
-    Engine -->|no cases / error| LLM[Benchmarker LLM]
+    Match -->|yes| Time["100 runs x 4 tiers"]
+    Time --> Out["report CSV graphs"]
+    Engine -->|no cases or error| LLM[Benchmarker LLM]
     LLM --> Write[Write benchmark_suite.toml]
     Write --> Engine
-    Out --> End([measurements/ complete])
+    Out --> End([measurements complete])
 ```
 
 1. **Auto-run (fast path)** — discovers cases from, in order: `measurements/benchmark_suite.toml`, known generators, API signatures (`.pyi`), or pytest call patterns; then runs the deterministic benchmark engine.
@@ -350,32 +352,28 @@ See [`agents/benchmarker.py`](agents/benchmarker.py) for the full agent specific
 flowchart TD
     subgraph step1["Step 1"]
         A1[Analyzer] --> A2[Py Tester]
-        A2 --> G1[flake8/mypy + baseline pytest]
+        A2 --> G1["lint and baseline pytest"]
     end
-    G1 --> R1[Reviewer] --> H1{Human review}
-    H1 -->|approve| step3
-    H1 -->|feedback| step1
-
     subgraph step3["Step 3"]
         S1[Scaffolder] --> S2[Translator]
-        S2 --> G2[cargo fmt + clippy]
+        S2 --> G2["cargo fmt and clippy"]
     end
-    G2 --> R2[Reviewer] --> H2{Human review}
-    H2 -->|approve| step5
-    H2 -->|feedback| step3
-
     subgraph step5["Step 5"]
-        E1[maturin build + pip install]
-        E1 --> E2[migration pytest]
+        E1["maturin build and install"] --> E2[migration pytest]
     end
-    E2 -->|fail| Fix[Translator fix loop]
-    Fix --> step5
-    E2 -->|pass| step6
-
     subgraph step6["Step 6"]
         B1[Benchmarker]
     end
-    step6 --> Done([Done])
+    G1 --> R1[Reviewer] --> H1{Human review}
+    H1 -->|approve| S1
+    H1 -->|feedback| A1
+    G2 --> R2[Reviewer] --> H2{Human review}
+    H2 -->|approve| E1
+    H2 -->|feedback| S1
+    E2 -->|fail| Fix[Translator fix loop]
+    Fix --> E1
+    E2 -->|pass| B1
+    B1 --> DoneNode([Done])
 ```
 
 ## Setup
@@ -395,9 +393,9 @@ Providers are checked at startup (`/v1/models`). The app errors only if **none**
 flowchart LR
     TUI[Textual TUI] --> Orch[Orchestrator]
     Orch --> Client[LLM client]
-    Client --> Probe[/v1/models health check/]
-    Probe --> OAI[OpenAI\nOPENAI_API_KEY]
-    Probe --> Bridge[cursor-api-proxy\n127.0.0.1:8765]
+    Client --> Probe["v1 models health check"]
+    Probe --> OAI["OpenAI OPENAI_API_KEY"]
+    Probe --> Bridge["cursor-api-proxy localhost"]
     Bridge --> Key[CURSOR_API_KEY]
     Key --> CLI[Cursor agent CLI]
     Orch --> Agents[LLM agents]
@@ -450,14 +448,14 @@ Optional stdio MCP for Cursor: `uv run executor-mcp` (see [`.cursor/mcp.json`](.
 
 ```mermaid
 flowchart TB
-    TUI[Textual TUI] --> Ctrl[orchestrator/controller.py]
-    Ctrl --> SR[step_runner · agent_pool · progress]
-    SR --> Ag[agents/]
-    SR --> ME[migration_executor.py]
-    ME --> MCP[executor_mcp/]
-    SR --> LLM[llm/]
-    SR --> Bench[benchmark/]
-    MCP --> Tools[read_file · write_file · execute_command · run_benchmarks]
+    TUI[Textual TUI] --> Ctrl[orchestrator controller]
+    Ctrl --> SR["step_runner agent_pool progress"]
+    SR --> Ag[agents]
+    SR --> ME[migration_executor]
+    ME --> MCP[executor_mcp]
+    SR --> LLMpkg[llm]
+    SR --> Bench[benchmark]
+    MCP --> Tools["read_file write_file execute_command run_benchmarks"]
 ```
 
 Main code: [`orchestrator/`](orchestrator/), [`agents/`](agents/), [`benchmark/`](benchmark/), [`llm/`](llm/), [`executor_mcp/`](executor_mcp/).
